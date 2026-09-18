@@ -3,9 +3,10 @@
 A Docker stack that runs AI coding agents in disposable containers, reachable over an HTTP API so
 that automation such as n8n can submit jobs without ever touching a Docker socket itself.
 
-> **Status: backend only.** Phases 1–2 of [`docs/PLAN.md`](docs/PLAN.md) are done — the repository
-> skeleton and the compose stack with both Docker backends. The agent image and the dispatcher are
-> not implemented yet, so there is nothing to submit jobs to yet.
+> **Status: no dispatcher yet.** Phases 1–3 of [`docs/PLAN.md`](docs/PLAN.md) are done — the
+> repository skeleton, the compose stack with both Docker backends, and the agent image. The
+> dispatcher is not implemented, so jobs have to be started by hand for now; see
+> [`docs/AGENT_CONTRACT.md`](docs/AGENT_CONTRACT.md).
 
 ## Idea in one picture
 
@@ -84,6 +85,20 @@ sudo systemctl restart apparmor.service
 Turning the restriction off globally (`sysctl kernel.apparmor_restrict_unprivileged_userns=0`) also
 works but lifts it for every unprivileged process on the host, so the profile above is preferred.
 The `host` profile needs none of this.
+
+## The agent image
+
+```sh
+docker build -t docker-agent-sandbox/agent:local agent/
+```
+
+A generic image: Node, git, the Docker CLI and `@devcontainers/cli`, running as a non-root user. No
+agent CLI is baked in yet — which one to use is still open (`docs/PLAN.md` §6), and the image is
+structured so that adding one is a build target rather than a rewrite.
+
+Its interface with the dispatcher — the environment it expects and the single result line it prints
+— is [`docs/AGENT_CONTRACT.md`](docs/AGENT_CONTRACT.md), which also shows how to run a job by hand
+while the dispatcher does not exist.
 
 ## Security boundary
 

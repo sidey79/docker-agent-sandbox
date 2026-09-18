@@ -1,7 +1,7 @@
 # Plan: docker-agent-sandbox
 
 Design and phase plan for running AI coding agents in disposable Docker containers, driven by n8n
-over HTTP. Phases 1–2 are implemented; phases 3–6 are the remaining work.
+over HTTP. Phases 1–3 are implemented; phases 4–6 are the remaining work.
 
 ## 1. Goal
 
@@ -128,10 +128,16 @@ unprivileged `rootless` user inside the container. The README documents the narr
 profile granting `userns` to `rootlesskit` alone. Rootless was kept rather than falling back to
 rootful dind, because the user namespace is the whole reason §3 can claim a boundary at all.
 
-**Phase 3 — agent image.** Generic Node-based image with `@devcontainers/cli`, a non-root user and an
-entrypoint contract (`TASK`, `JOB_ID`, result marker). Deliberately no specific agent CLI baked in;
-that is a later choice. *Acceptance:* a manually started agent container can bring up a devcontainer
-through the proxy.
+**Phase 3 — agent image.** *(done)*
+Generic Node-based image with `@devcontainers/cli`, a non-root user and an entrypoint contract
+(`TASK`, `JOB_ID`, result marker), written down in [`AGENT_CONTRACT.md`](AGENT_CONTRACT.md).
+Deliberately no specific agent CLI baked in; that is a later choice. *Acceptance:* a manually started
+agent container can bring up a devcontainer through the proxy.
+
+One thing the design did not spell out: because the agent talks to a *remote* daemon, the workspace
+cannot be handed to `devcontainer up` as a path — the daemon would resolve it on its own filesystem.
+The entrypoint therefore rewrites the effective `devcontainer.json` to mount the job volume by name.
+Same reasoning as §4, one layer further in.
 
 **Phase 4 — dispatcher.** FastAPI service implementing the contract above: bearer auth, SQLite job
 store, concurrency limit, hard timeout, fixed container spec, callback webhook. Python needs no Node
@@ -153,3 +159,41 @@ proof the update path works.
   as separate build targets once the pipeline works.
 - **Job store durability.** SQLite in a volume is the plan. If job history turns out not to matter,
   in-memory would be simpler.
+- **Which network the agent container gets.** `agent_net` is `internal`, so an agent attached only to
+  it can reach the proxy but cannot clone a repository. The dispatcher will have to attach a second,
+  non-internal network — and deciding what that network may reach is the same question as the egress
+  filtering above, so the two should be settled together in phase 4.
+
+## 7. Decisions taken after the first draft
+
+**How the agent reaches the daemon.** Under `host` the agent gets `DOCKER_HOST=tcp://docker-proxy:2375`
+over `agent_net`, which is what phase 3 was verified against. Under `dind` that alias does not
+resolve, because the agent container runs *inside* the dind daemon rather than next to it. The
+dispatcher will therefore bind-mount the daemon's own socket into the agent:
+
+```
+host:  DOCKER_HOST=tcp://docker-proxy:2375
+dind:  DOCKER_HOST=unix:///var/run/docker.sock
+       -v /home/rootless/docker.sock:/var/run/docker.sock
+       --group-add 2375
+```
+
+The `--group-add` is not decoration. Seen from inside the agent container the socket is
+`srw-rw---- root docker`, so the unprivileged `node` user gets `permission denied` and the
+devcontainer CLI fails on its very first `docker ps`. 2375 is the gid of the `docker` group baked
+into the `docker:dind` image. Running the agent as root would also work, but there is no reason to
+give up the non-root user to solve a group-membership problem.
+
+This hands the agent unrestricted access to the dind daemon. That is deliberate: it is exactly the
+blast radius §3 already accepts, and the alternatives are worse. Running a second socket proxy
+*inside* dind adds a service with its own lifecycle for a boundary that only separates the agent
+from a daemon it is already meant to own; moving the devcontainer CLI into the dispatcher would
+contradict §5 phase 4 and discard most of the agent image.
+
+The asymmetry is the point. Under `host` the proxy is doing real work, because the daemon on the
+other side is the host's. Under `dind` there is nothing left to protect that the daemon boundary
+does not already protect.
+
+Both shapes have been run by hand: a job under `host` through the proxy, and a job under `dind` with
+the socket mounted in. In both, the agent clones a repository, brings up a devcontainer, runs its
+command inside it and reports a result. Phase 4 is wiring, not discovery.
