@@ -38,7 +38,10 @@ services:
       retries: 12
       start_period: 40s
     devices:
+      # fuse-overlayfs needs /dev/fuse; slirp4netns, which gives the rootless
+      # daemon its network, needs /dev/net/tun to create its tap interface.
       - /dev/fuse
+      - /dev/net/tun
     profiles:
       - dind
     # Rootless dind still needs a user namespace and fuse-overlayfs. These three
@@ -48,6 +51,7 @@ services:
       - seccomp=unconfined
       - apparmor=unconfined
       - label=disable
+      - systempaths=unconfined
 
   docker-proxy-dind:
     image: tecnativa/docker-socket-proxy:v0.5.0@sha256:15aa1f5baf15fd99263ffb790806dc1eaf36804edcab7ef84391211964154104

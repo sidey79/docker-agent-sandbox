@@ -121,12 +121,30 @@ proxy itself). *Acceptance:* `docker version` from a throwaway container against
 `tcp://docker-proxy:2375` succeeds under both profiles, and the host daemon is unreachable under
 `dind`.
 
-The `dind` profile carries a host prerequisite that the design did not anticipate: Ubuntu 23.10 and
-newer set `kernel.apparmor_restrict_unprivileged_userns=1`, which stops rootlesskit from creating
-its user namespace. `privileged: true` does not lift it, because the restriction applies to the
-unprivileged `rootless` user inside the container. The README documents the narrow fix — an AppArmor
-profile granting `userns` to `rootlesskit` alone. Rootless was kept rather than falling back to
-rootful dind, because the user namespace is the whole reason §3 can claim a boundary at all.
+Rootless dind turned out to need three things the design did not anticipate. Two are settings on the
+service, one is a prerequisite on the host, and all three were found by running it rather than by
+reading about it:
+
+- **`/dev/net/tun`.** The rootless daemon gets its network from slirp4netns, which needs to create a
+  tap interface. Without the device it fails with a bare `open: No such file or directory`.
+- **`systempaths=unconfined`.** Docker masks parts of `/proc` in every container. Inside a user
+  namespace, procfs may only be mounted if nothing masked would be revealed, so the daemon's own
+  containers die at `error mounting "proc" to rootfs`. Unmasking is the narrow fix; `privileged:
+  true` would do it too, by also granting everything else. What it costs is small here: reading the
+  paths it unmasks needs capabilities the unprivileged `rootless` user does not hold.
+- **An AppArmor exception on the host.** Ubuntu 23.10 and newer set
+  `kernel.apparmor_restrict_unprivileged_userns=1`, which stops rootlesskit from creating its user
+  namespace at all. `privileged: true` does not lift this one either, because the restriction
+  applies to the unprivileged `rootless` user inside the container rather than to the container. The
+  README documents the profile that grants `userns` to `rootlesskit` alone.
+
+Rootless was kept rather than falling back to rootful dind, because the user namespace is the whole
+reason §3 can claim a boundary at all.
+
+One operational wrinkle: `docker compose down` only removes services of the currently selected
+profile. Switching `COMPOSE_PROFILES` therefore leaves the previous profile's proxy running, and
+both claim the `docker-proxy` alias. Take the stack down before switching, or the dispatcher may end
+up talking to the daemon it was moved away from.
 
 **Phase 3 — agent image.** *(done)*
 Generic Node-based image with `@devcontainers/cli`, a non-root user and an entrypoint contract

@@ -86,6 +86,22 @@ Turning the restriction off globally (`sysctl kernel.apparmor_restrict_unprivile
 works but lifts it for every unprivileged process on the host, so the profile above is preferred.
 The `host` profile needs none of this.
 
+The two settings this needs *inside* the container — `/dev/net/tun` for slirp4netns and
+`systempaths=unconfined` so the daemon's own containers can mount `/proc` — are already in the
+compose file and need nothing from you.
+
+### Switching profiles
+
+`docker compose down` only removes services belonging to the profile currently selected, so changing
+`COMPOSE_PROFILES` in a running stack leaves the old profile's proxy behind — and both answer to the
+`docker-proxy` alias. Take the stack down before you switch:
+
+```sh
+docker compose down          # with the OLD COMPOSE_PROFILES still set
+# ...edit .env...
+docker compose up -d
+```
+
 ## The agent image
 
 ```sh
