@@ -1,0 +1,6 @@
+# Local configuration – contains API tokens and agent credentials
+.env
+
+# Runtime data
+data/
+workspaces/

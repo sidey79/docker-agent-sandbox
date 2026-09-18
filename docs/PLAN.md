@@ -1,0 +1,138 @@
+# Plan: docker-agent-sandbox
+
+Design and phase plan for running AI coding agents in disposable Docker containers, driven by n8n
+over HTTP. Phase 1 is implemented; phases 2–6 are the remaining work.
+
+## 1. Goal
+
+Run AI coding agents on demand, with three properties that pull against each other:
+
+- **Reachable from n8n** without giving n8n any Docker privileges.
+- **Disposable** — one fresh container per job, no state carried between jobs.
+- **Contained** — a misbehaving or prompt-injected agent must not be able to take the host with it.
+
+A small long-running dispatcher resolves the tension. It is the only component with Docker access.
+n8n submits jobs over HTTP; the dispatcher creates and reaps the agent containers.
+
+## 2. Architecture
+
+```
+      n8n  ──HTTP (bearer token)──▶  agent-api   [long-running, small]
+ (network_backend_net)                   │
+                                         │ DOCKER_HOST=tcp://docker-proxy:2375
+                                         ▼
+                                   docker-proxy  [agent_net, internal: true]
+                                         │
+                  ┌──────────────────────┴──────────────────────┐
+            profile "dind"                                profile "host"
+                  ▼                                              ▼
+         rootless dind daemon                       /var/run/docker.sock
+                  │                                              │
+                  └────────▶   agent container   ◀───────────────┘
+                              [one per job, --rm]
+```
+
+`agent-api` sits on two networks: `network_backend_net` so n8n (and optionally Caddy/Authelia) can
+reach it, and the internal `agent_net` to reach the proxy. The proxy gets no port mapping at all —
+it is reachable only from inside `agent_net`.
+
+### Profiles
+
+`COMPOSE_PROFILES` in `.env` selects the backend, mirroring the pattern already used in
+`docker-llm`:
+
+| Profile | Backend | Use when |
+| --- | --- | --- |
+| `dind` | dedicated rootless `docker:dind-rootless` daemon | default; n8n-triggered jobs |
+| `host` | host `/var/run/docker.sock` | you deliberately want agents to reach the existing stacks |
+
+Both profiles ship their own proxy service (`docker-proxy-dind` / `docker-proxy-host`) sharing the
+network alias `docker-proxy`, so the dispatcher's `DOCKER_HOST` never changes. Only one profile is
+ever active, so the alias cannot collide.
+
+For the dind profile, the daemon's unix socket is shared with its proxy through a volume rather than
+exposing TCP, which keeps the proxy image working unmodified.
+
+## 3. Security boundary
+
+The socket proxy is worth having, but it is important to be precise about what it buys.
+
+Granting `CONTAINERS=1`, `POST=1`, `BUILD=1`, `VOLUMES=1` and `EXEC=1` is close to full root on the
+target daemon: whoever may create a container may create a privileged one, or one that bind-mounts
+`/`. Against the `host` daemon that means the host. So the proxy protects against *accidents* — an
+agent tearing down the FHEM stack because it misread an instruction — but not against a
+compromised or prompt-injected agent.
+
+The `dind` profile is where the boundary actually holds: the blast radius ends at the dedicated
+daemon. Rootless dind is chosen over rootful because the daemon then runs unprivileged inside a user
+namespace, which makes escaping it substantially harder. It is still not a hypervisor; a hard
+boundary would need a VM. That is a deliberate, documented trade-off, not an oversight.
+
+Rules that follow from this and must hold in the implementation:
+
+- The job payload never influences the container spec — no image, mounts, env or capabilities from
+  the request. The dispatcher builds the spec from its own configuration and an image allowlist.
+- Agent credentials come from the dispatcher environment, never from a request.
+- The dispatcher requires a bearer token and is never exposed directly to the internet.
+- Agent containers run with `no-new-privileges`, dropped capabilities, and memory, CPU and PID limits.
+
+## 4. Job contract
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /jobs` | submit a job → `202` + `jobId`. Body: task text, optional repo/branch, optional callback URL |
+| `GET /jobs/{id}` | status (`queued`/`running`/`succeeded`/`failed`/`timeout`), exit code, result |
+| `GET /jobs/{id}/logs` | collected container logs |
+| `DELETE /jobs/{id}` | cancel a running job |
+| `GET /healthz` | liveness |
+
+n8n can either poll `GET /jobs/{id}` or pass a callback URL and wait on a webhook. For long agent
+runs the callback is the more robust of the two.
+
+Each job gets its own Docker volume, created and removed through the Docker API. That works
+identically under both profiles — unlike a bind mount, whose path would mean different things to the
+host daemon and to the dind daemon. This is the detail most likely to cause a confusing bug, so it
+is settled by design rather than by configuration.
+
+The agent reports its result on stdout using a marker line; the dispatcher stores full logs plus the
+extracted result. This avoids having to read a volume back out, which would itself require starting
+a container.
+
+## 5. Phases
+
+**Phase 1 — repository scaffolding.** *(done)*
+House conventions from the other `docker-*` repos: `renovate.json`, `.dclintrc`, dclint workflow,
+GPL-3.0 license, README. Plus `.gitignore` and `.env.example`, which the sibling repos do not need —
+this repo is public and its `.env` will hold API tokens. Renovate picks the repo up automatically
+through `autodiscover: true`.
+
+**Phase 2 — proxy and dind.** Both profiles, proxy hardened (`read_only`, `no-new-privileges`;
+`privileged` is not needed for the proxy itself). *Acceptance:* `docker version` from a throwaway
+container against `tcp://docker-proxy:2375` succeeds under both profiles, and the host daemon is
+unreachable under `dind`.
+
+**Phase 3 — agent image.** Generic Node-based image with `@devcontainers/cli`, a non-root user and an
+entrypoint contract (`TASK`, `JOB_ID`, result marker). Deliberately no specific agent CLI baked in;
+that is a later choice. *Acceptance:* a manually started agent container can bring up a devcontainer
+through the proxy.
+
+**Phase 4 — dispatcher.** FastAPI service implementing the contract above: bearer auth, SQLite job
+store, concurrency limit, hard timeout, fixed container spec, callback webhook. Python needs no Node
+tooling here — it only talks to the Docker API; all agent tooling lives in the agent image.
+*Acceptance:* `curl` submits a job, the container appears and is removed, logs and status are
+retrievable, a timeout kills the container.
+
+**Phase 5 — n8n integration.** Example workflow in `examples/`, reachability over
+`network_backend_net` verified end to end.
+
+**Phase 6 — documentation and Renovate.** Operating instructions in the README, first Renovate PR as
+proof the update path works.
+
+## 6. Open points
+
+- **Egress filtering.** Agents currently reach the internet unrestricted. An allowlisting HTTP proxy
+  in front of them is a possible later stage; deliberately out of scope for the first round.
+- **Which agent CLI.** The image stays generic for now; Claude Code, Codex or Gemini CLI can be added
+  as separate build targets once the pipeline works.
+- **Job store durability.** SQLite in a volume is the plan. If job history turns out not to matter,
+  in-memory would be simpler.
