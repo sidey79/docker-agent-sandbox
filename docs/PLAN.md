@@ -163,9 +163,26 @@ proof the update path works.
   it can reach the proxy but cannot clone a repository. The dispatcher will have to attach a second,
   non-internal network — and deciding what that network may reach is the same question as the egress
   filtering above, so the two should be settled together in phase 4.
-- **How the agent reaches the daemon under `dind`.** Under `host` it is `tcp://docker-proxy:2375`
-  over `agent_net`, which is what phase 3 was verified against. Under `dind` the agent container runs
-  *inside* the dind daemon, where that alias does not resolve; the daemon's socket would have to be
-  mounted into the agent instead. That gives the agent unrestricted access to the dind daemon, which
-  is inside the blast radius §3 already accepts — but it is a decision, not a detail, and phase 4
-  has to make it explicitly.
+
+## 7. Decisions taken after the first draft
+
+**How the agent reaches the daemon.** Under `host` the agent gets `DOCKER_HOST=tcp://docker-proxy:2375`
+over `agent_net`, which is what phase 3 was verified against. Under `dind` that alias does not
+resolve, because the agent container runs *inside* the dind daemon rather than next to it. The
+dispatcher will therefore bind-mount the daemon's own socket into the agent:
+
+```
+host:  DOCKER_HOST=tcp://docker-proxy:2375
+dind:  DOCKER_HOST=unix:///var/run/docker.sock
+       -v /home/rootless/docker.sock:/var/run/docker.sock
+```
+
+This hands the agent unrestricted access to the dind daemon. That is deliberate: it is exactly the
+blast radius §3 already accepts, and the alternatives are worse. Running a second socket proxy
+*inside* dind adds a service with its own lifecycle for a boundary that only separates the agent
+from a daemon it is already meant to own; moving the devcontainer CLI into the dispatcher would
+contradict §5 phase 4 and discard most of the agent image.
+
+The asymmetry is the point. Under `host` the proxy is doing real work, because the daemon on the
+other side is the host's. Under `dind` there is nothing left to protect that the daemon boundary
+does not already protect.
