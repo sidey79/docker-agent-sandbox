@@ -175,7 +175,14 @@ dispatcher will therefore bind-mount the daemon's own socket into the agent:
 host:  DOCKER_HOST=tcp://docker-proxy:2375
 dind:  DOCKER_HOST=unix:///var/run/docker.sock
        -v /home/rootless/docker.sock:/var/run/docker.sock
+       --group-add 2375
 ```
+
+The `--group-add` is not decoration. Seen from inside the agent container the socket is
+`srw-rw---- root docker`, so the unprivileged `node` user gets `permission denied` and the
+devcontainer CLI fails on its very first `docker ps`. 2375 is the gid of the `docker` group baked
+into the `docker:dind` image. Running the agent as root would also work, but there is no reason to
+give up the non-root user to solve a group-membership problem.
 
 This hands the agent unrestricted access to the dind daemon. That is deliberate: it is exactly the
 blast radius §3 already accepts, and the alternatives are worse. Running a second socket proxy
@@ -186,3 +193,7 @@ contradict §5 phase 4 and discard most of the agent image.
 The asymmetry is the point. Under `host` the proxy is doing real work, because the daemon on the
 other side is the host's. Under `dind` there is nothing left to protect that the daemon boundary
 does not already protect.
+
+Both shapes have been run by hand: a job under `host` through the proxy, and a job under `dind` with
+the socket mounted in. In both, the agent clones a repository, brings up a devcontainer, runs its
+command inside it and reports a result. Phase 4 is wiring, not discovery.

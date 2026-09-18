@@ -98,3 +98,16 @@ docker run --rm \
 `agent_net` is `internal`, so this has no egress and `REPO_URL` will fail. Attaching a second,
 non-internal network is what makes cloning work — which is why who attaches that network is listed
 as an open point in [`PLAN.md`](PLAN.md#6-open-points).
+
+Under the `dind` profile the same job runs *inside* the dind daemon, where `docker-proxy` does not
+resolve. There the daemon's own socket is mounted in instead, and the agent needs the `docker` group
+to use it ([`PLAN.md` §7](PLAN.md#7-decisions-taken-after-the-first-draft)):
+
+```sh
+docker run --rm --group-add 2375 \
+  -e DOCKER_HOST=unix:///var/run/docker.sock \
+  -v /home/rootless/docker.sock:/var/run/docker.sock \
+  ...
+```
+
+The dind daemon has egress of its own, so `REPO_URL` works there without a second network.
