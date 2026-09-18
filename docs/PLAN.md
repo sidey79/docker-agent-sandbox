@@ -1,7 +1,7 @@
 # Plan: docker-agent-sandbox
 
 Design and phase plan for running AI coding agents in disposable Docker containers, driven by n8n
-over HTTP. Phases 1–2 are implemented; phases 3–6 are the remaining work.
+over HTTP. Phases 1–3 are implemented; phases 4–6 are the remaining work.
 
 ## 1. Goal
 
@@ -128,10 +128,16 @@ unprivileged `rootless` user inside the container. The README documents the narr
 profile granting `userns` to `rootlesskit` alone. Rootless was kept rather than falling back to
 rootful dind, because the user namespace is the whole reason §3 can claim a boundary at all.
 
-**Phase 3 — agent image.** Generic Node-based image with `@devcontainers/cli`, a non-root user and an
-entrypoint contract (`TASK`, `JOB_ID`, result marker). Deliberately no specific agent CLI baked in;
-that is a later choice. *Acceptance:* a manually started agent container can bring up a devcontainer
-through the proxy.
+**Phase 3 — agent image.** *(done)*
+Generic Node-based image with `@devcontainers/cli`, a non-root user and an entrypoint contract
+(`TASK`, `JOB_ID`, result marker), written down in [`AGENT_CONTRACT.md`](AGENT_CONTRACT.md).
+Deliberately no specific agent CLI baked in; that is a later choice. *Acceptance:* a manually started
+agent container can bring up a devcontainer through the proxy.
+
+One thing the design did not spell out: because the agent talks to a *remote* daemon, the workspace
+cannot be handed to `devcontainer up` as a path — the daemon would resolve it on its own filesystem.
+The entrypoint therefore rewrites the effective `devcontainer.json` to mount the job volume by name.
+Same reasoning as §4, one layer further in.
 
 **Phase 4 — dispatcher.** FastAPI service implementing the contract above: bearer auth, SQLite job
 store, concurrency limit, hard timeout, fixed container spec, callback webhook. Python needs no Node
@@ -153,3 +159,13 @@ proof the update path works.
   as separate build targets once the pipeline works.
 - **Job store durability.** SQLite in a volume is the plan. If job history turns out not to matter,
   in-memory would be simpler.
+- **Which network the agent container gets.** `agent_net` is `internal`, so an agent attached only to
+  it can reach the proxy but cannot clone a repository. The dispatcher will have to attach a second,
+  non-internal network — and deciding what that network may reach is the same question as the egress
+  filtering above, so the two should be settled together in phase 4.
+- **How the agent reaches the daemon under `dind`.** Under `host` it is `tcp://docker-proxy:2375`
+  over `agent_net`, which is what phase 3 was verified against. Under `dind` the agent container runs
+  *inside* the dind daemon, where that alias does not resolve; the daemon's socket would have to be
+  mounted into the agent instead. That gives the agent unrestricted access to the dind daemon, which
+  is inside the blast radius §3 already accepts — but it is a decision, not a detail, and phase 4
+  has to make it explicitly.
