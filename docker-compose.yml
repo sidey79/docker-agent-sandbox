@@ -1,0 +1,157 @@
+name: Agent Sandbox
+
+services:
+  # --- dind profile ---------------------------------------------------------
+  # A dedicated rootless Docker daemon. Agent containers are created inside it,
+  # so the blast radius of a misbehaving agent ends at this daemon.
+  #
+  # The explicit `dockerd` command suppresses the entrypoint's default
+  # `--host=tcp://0.0.0.0:2375`, leaving a single unix socket that is shared
+  # with the proxy through `dind_home`. Containers started inside the daemon
+  # therefore have no network path back to it.
+  #
+  # Ubuntu 23.10+ blocks the user namespace this needs; see the README section
+  # "Host requirement for the dind profile".
+  dind:
+    image: docker:29.8.1-dind-rootless@sha256:575e55254404cf956069d061d265f1109c60f725822f0629b61ccf7029de2728
+    volumes:
+      # Shared with docker-proxy-dind; holds nothing but the socket, because the
+      # data root is a nested volume of its own. The mount point is owned by
+      # `rootless` in the image, so the daemon can create its socket here.
+      - dind_home:/home/rootless
+      - dind_data:/home/rootless/.local/share/docker
+    environment:
+      - TZ=${TZ:-Europe/Berlin}
+      # Only consumed by the bundled CLI (healthcheck), not by dockerd itself.
+      - DOCKER_HOST=unix:///home/rootless/docker.sock
+    networks:
+      # Not internal: containers created inside this daemon need egress.
+      - dind_net
+    command:
+      - dockerd
+      - --host=unix:///home/rootless/docker.sock
+    restart: always
+    healthcheck:
+      test: [ "CMD", "docker", "version" ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    devices:
+      - /dev/fuse
+    profiles:
+      - dind
+    # Rootless dind still needs a user namespace and fuse-overlayfs. These three
+    # settings replace `privileged: true`, which would defeat the point of
+    # choosing the rootless variant.
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+      - label=disable
+
+  docker-proxy-dind:
+    image: tecnativa/docker-socket-proxy:v0.5.0@sha256:15aa1f5baf15fd99263ffb790806dc1eaf36804edcab7ef84391211964154104
+    depends_on:
+      dind:
+        condition: service_healthy
+    volumes:
+      # Read-write on purpose: connecting to a unix socket requires write
+      # permission on the socket inode.
+      - dind_home:/dind
+    environment:
+      - TZ=${TZ:-Europe/Berlin}
+      # haproxy treats a leading slash as a unix socket address.
+      - SOCKET_PATH=/dind/docker.sock
+      # What the dispatcher needs to run and reap agent containers.
+      - CONTAINERS=1
+      - IMAGES=1
+      - VOLUMES=1
+      - EXEC=1
+      - BUILD=1
+      - POST=1
+      # Everything below stays at the image default of 0; listed explicitly so
+      # that a future relaxation is a visible diff rather than a silent one.
+      - ALLOW_RESTARTS=0
+      - ALLOW_START=0
+      - ALLOW_STOP=0
+      - AUTH=0
+      - CONFIGS=0
+      - NETWORKS=0
+      - NODES=0
+      - PLUGINS=0
+      - SECRETS=0
+      - SERVICES=0
+      - SESSION=0
+      - SWARM=0
+      - SYSTEM=0
+      - TASKS=0
+    networks:
+      agent_net:
+        aliases:
+          - docker-proxy
+      dind_net: {}
+    restart: always
+    profiles:
+      - dind
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /run
+      - /tmp
+
+  # --- host profile ---------------------------------------------------------
+  # Same proxy, same network alias, but pointed at the host daemon. Read
+  # docs/PLAN.md#3-security-boundary before enabling this: anything that may
+  # create containers on the host daemon is effectively root on the host.
+  docker-proxy-host:
+    image: tecnativa/docker-socket-proxy:v0.5.0@sha256:15aa1f5baf15fd99263ffb790806dc1eaf36804edcab7ef84391211964154104
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - TZ=${TZ:-Europe/Berlin}
+      - SOCKET_PATH=/var/run/docker.sock
+      - CONTAINERS=1
+      - IMAGES=1
+      - VOLUMES=1
+      - EXEC=1
+      - BUILD=1
+      - POST=1
+      - ALLOW_RESTARTS=0
+      - ALLOW_START=0
+      - ALLOW_STOP=0
+      - AUTH=0
+      - CONFIGS=0
+      - NETWORKS=0
+      - NODES=0
+      - PLUGINS=0
+      - SECRETS=0
+      - SERVICES=0
+      - SESSION=0
+      - SWARM=0
+      - SYSTEM=0
+      - TASKS=0
+    networks:
+      agent_net:
+        aliases:
+          - docker-proxy
+    restart: always
+    profiles:
+      - host
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /run
+      - /tmp
+
+networks:
+  # Where the dispatcher reaches `docker-proxy`. No port mapping and no egress.
+  agent_net:
+    internal: true
+  # Egress for the dind daemon and its proxy.
+  dind_net: {}
+
+volumes:
+  dind_home: {}
+  dind_data: {}

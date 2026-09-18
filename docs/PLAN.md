@@ -1,7 +1,7 @@
 # Plan: docker-agent-sandbox
 
 Design and phase plan for running AI coding agents in disposable Docker containers, driven by n8n
-over HTTP. Phase 1 is implemented; phases 2–6 are the remaining work.
+over HTTP. Phases 1–2 are implemented; phases 3–6 are the remaining work.
 
 ## 1. Goal
 
@@ -51,7 +51,16 @@ network alias `docker-proxy`, so the dispatcher's `DOCKER_HOST` never changes. O
 ever active, so the alias cannot collide.
 
 For the dind profile, the daemon's unix socket is shared with its proxy through a volume rather than
-exposing TCP, which keeps the proxy image working unmodified.
+exposing TCP, which keeps the proxy image working unmodified. Two implementation details make that
+work:
+
+- The service runs an explicit `dockerd --host=unix://…` command. That suppresses the entrypoint's
+  default `--host=tcp://0.0.0.0:2375`, so the daemon has no TCP listener at all and containers
+  started *inside* it have no network path back to it.
+- The socket lives at the root of a volume mounted on `/home/rootless`, because rootlesskit does
+  `--copy-up=/run`: anything mounted under `/run` is shadowed by a tmpfs and never reaches the
+  proxy. The daemon's data root is a second, nested volume, so the shared volume stays empty apart
+  from the socket.
 
 ## 3. Security boundary
 
@@ -106,10 +115,18 @@ GPL-3.0 license, README. Plus `.gitignore` and `.env.example`, which the sibling
 this repo is public and its `.env` will hold API tokens. Renovate picks the repo up automatically
 through `autodiscover: true`.
 
-**Phase 2 — proxy and dind.** Both profiles, proxy hardened (`read_only`, `no-new-privileges`;
-`privileged` is not needed for the proxy itself). *Acceptance:* `docker version` from a throwaway
-container against `tcp://docker-proxy:2375` succeeds under both profiles, and the host daemon is
-unreachable under `dind`.
+**Phase 2 — proxy and dind.** *(done)*
+Both profiles, proxy hardened (`read_only`, `no-new-privileges`; `privileged` is not needed for the
+proxy itself). *Acceptance:* `docker version` from a throwaway container against
+`tcp://docker-proxy:2375` succeeds under both profiles, and the host daemon is unreachable under
+`dind`.
+
+The `dind` profile carries a host prerequisite that the design did not anticipate: Ubuntu 23.10 and
+newer set `kernel.apparmor_restrict_unprivileged_userns=1`, which stops rootlesskit from creating
+its user namespace. `privileged: true` does not lift it, because the restriction applies to the
+unprivileged `rootless` user inside the container. The README documents the narrow fix — an AppArmor
+profile granting `userns` to `rootlesskit` alone. Rootless was kept rather than falling back to
+rootful dind, because the user namespace is the whole reason §3 can claim a boundary at all.
 
 **Phase 3 — agent image.** Generic Node-based image with `@devcontainers/cli`, a non-root user and an
 entrypoint contract (`TASK`, `JOB_ID`, result marker). Deliberately no specific agent CLI baked in;
