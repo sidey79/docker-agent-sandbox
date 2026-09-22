@@ -1,7 +1,7 @@
 # Plan: docker-agent-sandbox
 
 Design and phase plan for running AI coding agents in disposable Docker containers, driven by n8n
-over HTTP. Phases 1–3 are implemented; phases 4–6 are the remaining work.
+over HTTP. Phases 1–4 are implemented; phases 5–6 are the remaining work.
 
 ## 1. Goal
 
@@ -157,11 +157,29 @@ cannot be handed to `devcontainer up` as a path — the daemon would resolve it 
 The entrypoint therefore rewrites the effective `devcontainer.json` to mount the job volume by name.
 Same reasoning as §4, one layer further in.
 
-**Phase 4 — dispatcher.** FastAPI service implementing the contract above: bearer auth, SQLite job
-store, concurrency limit, hard timeout, fixed container spec, callback webhook. Python needs no Node
-tooling here — it only talks to the Docker API; all agent tooling lives in the agent image.
-*Acceptance:* `curl` submits a job, the container appears and is removed, logs and status are
-retrievable, a timeout kills the container.
+**Phase 4 — dispatcher.** *(done)*
+FastAPI service implementing the contract above: bearer auth, SQLite job store, concurrency limit,
+hard timeout, fixed container spec, callback webhook. Python needs no Node tooling here — it only
+talks to the Docker API; all agent tooling lives in the agent image. The HTTP surface is written
+down in [`API.md`](API.md). *Acceptance:* `curl` submits a job, the container appears and is
+removed, logs and status are retrievable, a timeout kills the container.
+
+Three things the design did not anticipate, all of them consequences of decisions made earlier:
+
+- **The agent container must not carry the job label.** The agent removes everything labelled
+  `agent-sandbox.job=<id>` on its way out, which is how devcontainers get reaped. Give the agent
+  container that same label and it deletes itself mid-run — which is exactly what happened the first
+  time the dispatcher created one. The agent container gets `agent-sandbox.agent=<id>` instead and
+  the dispatcher sweeps both.
+- **Logs must be collected before the container is removed.** Obvious in hindsight, and the timeout
+  path is where it bites: the run that most needs its output is the one that gets torn down.
+- **Cancelling must not remove the container itself.** Doing so races the worker's polling loop,
+  which then sees the container vanish and reports a plain failure instead of a cancellation, taking
+  the logs with it. Cancel sets a flag; the loop tears down in order.
+
+One thing that follows from the proxy's allowlist: `ALLOW_STOP` and `ALLOW_RESTARTS` stay `0`, so the
+dispatcher cannot stop or kill a container. It ends one with `remove(force=True)`, which the
+allowlist does permit, and which is all a disposable agent ever needs.
 
 **Phase 5 — n8n integration.** Example workflow in `examples/`, reachability over
 `network_backend_net` verified end to end.
@@ -177,10 +195,11 @@ proof the update path works.
   as separate build targets once the pipeline works.
 - **Job store durability.** SQLite in a volume is the plan. If job history turns out not to matter,
   in-memory would be simpler.
-- **Which network the agent container gets.** `agent_net` is `internal`, so an agent attached only to
-  it can reach the proxy but cannot clone a repository. The dispatcher will have to attach a second,
-  non-internal network — and deciding what that network may reach is the same question as the egress
-  filtering above, so the two should be settled together in phase 4.
+- **Egress from agent containers.** Settled structurally in phase 4 but not restricted: under `host`
+  agents run on `agent_run_net`, which carries the `docker-proxy` alias and, unlike `agent_net`, is
+  not internal; under `dind` they run inside that daemon and use its egress. A second network per
+  container was avoided because connecting one needs `NETWORKS=1` on the proxy, which would also let
+  the dispatcher delete networks. What those agents may *reach* is still the open question above.
 
 ## 7. Decisions taken after the first draft
 

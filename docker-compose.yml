@@ -1,6 +1,43 @@
 name: Agent Sandbox
 
 services:
+
+  # --- both profiles --------------------------------------------------------
+  # The dispatcher. The only component with Docker access, and the reason n8n
+  # needs none of its own. It runs under both profiles; AGENT_BACKEND tells it
+  # how an agent container reaches the daemon (docs/PLAN.md §7).
+  agent-api:
+    build:
+      context: ./api
+    volumes:
+      - api_data:/data
+    environment:
+      - TZ=${TZ:-Europe/Berlin}
+      - DOCKER_HOST=tcp://docker-proxy:2375
+      - AGENT_BACKEND=${COMPOSE_PROFILES:-dind}
+      - AGENT_API_TOKEN=${AGENT_API_TOKEN:?set AGENT_API_TOKEN in .env}
+      - AGENT_IMAGE=${AGENT_IMAGE:-docker-agent-sandbox/agent:local}
+      - AGENT_CMD=${AGENT_CMD:-}
+      - AGENT_MAX_CONCURRENCY=${AGENT_MAX_CONCURRENCY:-2}
+      - AGENT_JOB_TIMEOUT_SECONDS=${AGENT_JOB_TIMEOUT_SECONDS:-1800}
+      - AGENT_MEM_LIMIT=${AGENT_MEM_LIMIT:-2g}
+      - AGENT_CPUS=${AGENT_CPUS:-2}
+      # Handed to agent containers from this environment, never from a request.
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    networks:
+      # No published port: n8n reaches it by name on the backend network.
+      - backend_net
+      - agent_net
+    restart: always
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz')" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+
   # --- dind profile ---------------------------------------------------------
   # A dedicated rootless Docker daemon. Agent containers are created inside it,
   # so the blast radius of a misbehaving agent ends at this daemon.
@@ -94,6 +131,9 @@ services:
         aliases:
           - docker-proxy
       dind_net: {}
+      agent_run_net:
+        aliases:
+          - docker-proxy
     restart: always
     profiles:
       - dind
@@ -139,6 +179,9 @@ services:
       agent_net:
         aliases:
           - docker-proxy
+      agent_run_net:
+        aliases:
+          - docker-proxy
     restart: always
     profiles:
       - host
@@ -155,7 +198,17 @@ networks:
     internal: true
   # Egress for the dind daemon and its proxy.
   dind_net: {}
+  # Where agent containers run under the `host` backend. It carries the same
+  # `docker-proxy` alias and, unlike agent_net, is not internal — an agent that
+  # cannot reach the network cannot clone the repository it was given. Under
+  # `dind` the agents live inside that daemon instead and never join this.
+  agent_run_net: {}
+  # Where n8n reaches the dispatcher. Owned by another stack.
+  backend_net:
+    external: true
+    name: network_backend_net
 
 volumes:
+  api_data: {}
   dind_home: {}
   dind_data: {}

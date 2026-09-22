@@ -4,3 +4,7 @@
 # Runtime data
 data/
 workspaces/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
