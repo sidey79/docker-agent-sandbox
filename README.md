@@ -3,10 +3,9 @@
 A Docker stack that runs AI coding agents in disposable containers, reachable over an HTTP API so
 that automation such as n8n can submit jobs without ever touching a Docker socket itself.
 
-> **Status: no dispatcher yet.** Phases 1–3 of [`docs/PLAN.md`](docs/PLAN.md) are done — the
-> repository skeleton, the compose stack with both Docker backends, and the agent image. The
-> dispatcher is not implemented, so jobs have to be started by hand for now; see
-> [`docs/AGENT_CONTRACT.md`](docs/AGENT_CONTRACT.md).
+> **Status: working end to end.** Phases 1–4 of [`docs/PLAN.md`](docs/PLAN.md) are done — the
+> compose stack with both Docker backends, the agent image, and the dispatcher. What is left is the
+> n8n example workflow and the operating documentation.
 
 ## Idea in one picture
 
@@ -115,6 +114,27 @@ structured so that adding one is a build target rather than a rewrite.
 Its interface with the dispatcher — the environment it expects and the single result line it prints
 — is [`docs/AGENT_CONTRACT.md`](docs/AGENT_CONTRACT.md), which also shows how to run a job by hand
 while the dispatcher does not exist.
+
+## The dispatcher
+
+Built and started with the rest of the stack. It listens on port 8080 with no published port, so it
+is reachable by name from `network_backend_net` and nowhere else.
+
+```sh
+curl -X POST http://agent-api:8080/jobs \
+  -H "Authorization: Bearer $AGENT_API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"task": "Say hello.", "repoUrl": "https://github.com/example/repo.git"}'
+```
+
+Submit, poll, fetch logs, cancel, or hand it a `callbackUrl` and wait for the webhook — the full
+contract is [`docs/API.md`](docs/API.md).
+
+Two things about it are deliberate. It is the only component with Docker access, which is what lets
+n8n stay unprivileged. And it builds every container spec from its own configuration: a job supplies
+task text and at most a repository, never an image, a mount, an environment variable or a command.
+`AGENT_CMD` — the command that actually runs inside the devcontainer — comes from `.env`, because a
+request that could choose it would be remote code execution with extra steps.
 
 ## Security boundary
 

@@ -72,9 +72,12 @@ silently empty.
 ## Cleanup
 
 The devcontainer runs on the remote daemon and would outlive the agent container. The entrypoint
-removes everything labelled `agent-sandbox.job=$JOB_ID` on exit. The dispatcher should treat that as
-best effort and sweep the same label when it reaps a job, since a killed agent container never runs
-its trap.
+removes everything labelled `agent-sandbox.job=$JOB_ID` on exit. The dispatcher treats that as best
+effort and repeats the sweep when it reaps a job, since a killed agent container never runs its trap.
+
+**The agent container must not carry `agent-sandbox.job` itself.** The sweep does not exclude the
+caller, so an agent labelled with its own job id deletes itself mid-run. The dispatcher labels it
+`agent-sandbox.agent=<job id>` instead and sweeps both labels.
 
 ## Trying it by hand
 
