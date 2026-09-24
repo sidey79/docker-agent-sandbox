@@ -253,7 +253,19 @@ class JobRunner:
             "pids_limit": settings.agent_pids_limit,
         }
 
-        if settings.agent_backend == "dind":
+        # Docker access is granted only to a job that starts a devcontainer.
+        # A job running its command in the agent container has no use for it,
+        # and the agent runs model-directed code — so it does not get a handle
+        # on the daemon just in case.
+        if settings.agent_cmd_location != "devcontainer":
+            if settings.agent_backend != "dind":
+                # Not agent_network: that one carries the `docker-proxy` alias,
+                # and withholding DOCKER_HOST while leaving the proxy one
+                # resolvable name away would be a lock with the key beside it.
+                spec["network"] = settings.agent_egress_network
+            # Under dind nothing more is needed: the daemon has no TCP listener
+            # at all (docs/PLAN.md §2), so without its socket there is no path.
+        elif settings.agent_backend == "dind":
             # Inside the dind daemon the proxy's alias does not resolve, so the
             # daemon's own socket is handed over instead — docs/PLAN.md §7.
             spec["environment"]["DOCKER_HOST"] = "unix:///var/run/docker.sock"

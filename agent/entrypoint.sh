@@ -35,6 +35,11 @@ emit_result() {
 cleanup() {
   # The devcontainer runs on the remote daemon and outlives this container
   # unless it is removed explicitly. Failures here must not mask the job result.
+  #
+  # A job that runs its command here started no devcontainer, and the dispatcher
+  # gives it no Docker access at all, so there is nothing to sweep and nothing
+  # to sweep it with.
+  [ "${AGENT_CMD_LOCATION:-devcontainer}" = "devcontainer" ] || return 0
   local ids
   ids="$(docker ps -aq --filter "label=${JOB_LABEL}" 2>/dev/null || true)"
   if [ -n "${ids}" ]; then

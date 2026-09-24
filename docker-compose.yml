@@ -30,6 +30,7 @@ services:
       # the dind daemon under the other. Defaults match this compose file; they
       # only need changing if the project name or the dind image does.
       - AGENT_NETWORK=${AGENT_NETWORK:-agentsandbox_agent_run_net}
+      - AGENT_EGRESS_NETWORK=${AGENT_EGRESS_NETWORK:-agentsandbox_agent_egress_net}
       - AGENT_DIND_SOCKET=${AGENT_DIND_SOCKET:-/home/rootless/docker.sock}
       - AGENT_DIND_DOCKER_GID=${AGENT_DIND_DOCKER_GID:-2375}
       # Names of the variables below that agent containers receive. Values come
@@ -41,6 +42,11 @@ services:
       # No published port: n8n reaches it by name on the backend network.
       - backend_net
       - agent_net
+      # Not used by the dispatcher itself. Compose only creates a network some
+      # service joins, and this one has to exist before the dispatcher can put
+      # an agent container on it. Agents there can reach `agent-api` by name,
+      # which buys them nothing without the bearer token they are never given.
+      - agent_egress_net
     restart: always
     healthcheck:
       test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz')" ]
@@ -216,6 +222,9 @@ networks:
   # cannot reach the network cannot clone the repository it was given. Under
   # `dind` the agents live inside that daemon instead and never join this.
   agent_run_net: {}
+  # Where agent containers run when they get no Docker access. Egress only: the
+  # proxy is not on it, so `docker-proxy` does not resolve here.
+  agent_egress_net: {}
   # Where n8n reaches the dispatcher. Owned by another stack.
   backend_net:
     external: true

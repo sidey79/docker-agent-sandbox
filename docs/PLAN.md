@@ -84,6 +84,10 @@ Rules that follow from this and must hold in the implementation:
 - Agent credentials come from the dispatcher environment, never from a request.
 - The dispatcher requires a bearer token and is never exposed directly to the internet.
 - Agent containers run with `no-new-privileges`, dropped capabilities, and memory, CPU and PID limits.
+- Docker access is given only to a job that starts a devcontainer. A job whose command runs in the
+  agent container gets no `DOCKER_HOST`, no daemon socket, and a network without the `docker-proxy`
+  alias — the last part matters, because withholding the variable while leaving the proxy one
+  resolvable name away would be a lock with the key beside it.
 
 ## 4. Job contract
 
@@ -209,7 +213,8 @@ was being built.
 
 ## 6. Open points
 
-- **Egress filtering.** Agents currently reach the internet unrestricted. An allowlisting HTTP proxy
+- **Egress filtering.** Agents still reach the internet unrestricted — Docker access is now scoped
+  to jobs that need it (§3), but what an agent may *reach* is not. An allowlisting HTTP proxy
   in front of them is a possible later stage; deliberately out of scope for the first round.
 - **Which agent CLI.** Partly settled: the image has a `claude` build target with Claude Code, and
   the base target stays generic. Codex or Gemini CLI would be further targets on the same pattern.

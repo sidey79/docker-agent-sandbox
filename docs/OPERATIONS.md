@@ -134,7 +134,8 @@ Enforced by the dispatcher on every container, never negotiable by a job.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `AGENT_DEVCONTAINER_IMAGE` | `mcr.microsoft.com/devcontainers/base:bookworm` | Used when a repository ships no `devcontainer.json`. |
-| `AGENT_NETWORK` | `agentsandbox_agent_run_net` | Network for agent containers under `host`. Only needs changing if the compose project name is not `Agent Sandbox`. |
+| `AGENT_NETWORK` | `agentsandbox_agent_run_net` | Network for agent containers under `host` that start a devcontainer. Reaches the proxy. Only needs changing if the compose project name is not `Agent Sandbox`. |
+| `AGENT_EGRESS_NETWORK` | `agentsandbox_agent_egress_net` | Network for agent containers under `host` that get no Docker access. Egress only — the proxy is deliberately not on it. |
 | `AGENT_DIND_SOCKET` | `/home/rootless/docker.sock` | The dind daemon's socket, as a path inside the dind container. |
 | `AGENT_DIND_DOCKER_GID` | `2375` | gid of the `docker` group in the `docker:dind` image. Without it the agent cannot open the socket it was handed. |
 | `AGENT_CREDENTIAL_ENV` | `ANTHROPIC_API_KEY` | Comma-separated names of variables forwarded to agents. |
@@ -150,7 +151,9 @@ docker build --target claude -t docker-agent-sandbox/agent:claude agent/
 ```
 
 Claude Code brings its own tooling, so it runs in the agent container rather than
-in a devcontainer. Three settings in `.env`:
+in a devcontainer — and because it starts no devcontainer, the dispatcher gives
+it no Docker access at all: no `DOCKER_HOST`, no socket, and a network without
+the `docker-proxy` alias. Three settings in `.env`:
 
 ```sh
 AGENT_IMAGE=docker-agent-sandbox/agent:claude

@@ -47,6 +47,15 @@ The trade-off is real and worth stating: under `agent` the command does **not**
 get the repository's toolchain. A job that needs the project's exact Node or
 Python version wants `devcontainer`.
 
+It also decides whether the container gets Docker access at all. Only a job that
+starts a devcontainer needs to reach the daemon, so only that job is given the
+means: `DOCKER_HOST`, and under `dind` the daemon's socket and the `docker`
+group. Under `agent` none of it is set, and the container runs on a network that
+does not carry the `docker-proxy` alias — withholding `DOCKER_HOST` while leaving
+the proxy one resolvable name away would be a lock with the key beside it. The
+agent runs model-directed code, so it does not get a handle on the daemon just in
+case.
+
 ## Output
 
 Exactly one line on stdout, always, including when the job fails:
