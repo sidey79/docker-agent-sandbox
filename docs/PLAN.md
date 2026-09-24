@@ -1,7 +1,7 @@
 # Plan: docker-agent-sandbox
 
 Design and phase plan for running AI coding agents in disposable Docker containers, driven by n8n
-over HTTP. Phases 1–5 are implemented; phase 6 is the remaining work.
+over HTTP. All six phases are implemented; what remains is the open points in §6.
 
 ## 1. Goal
 
@@ -191,8 +191,21 @@ committed. The callback URL is the one value that cannot be guessed for someone 
 has to name this n8n as the *dispatcher* sees it — so it sits in a `Config` node at the front rather
 than being buried in an HTTP node.
 
-**Phase 6 — documentation and Renovate.** Operating instructions in the README, first Renovate PR as
-proof the update path works.
+**Phase 6 — documentation and Renovate.** *(done)*
+Operating instructions and the first Renovate PR as proof the update path works.
+
+The instructions outgrew the README and became [`OPERATIONS.md`](OPERATIONS.md): prerequisites,
+first run, a full configuration reference, day-to-day commands, what to watch, maintenance, and a
+troubleshooting section built from the failures this build actually hit. The README keeps the
+quickstart and points at it.
+
+Writing the configuration reference turned up a gap worth noting: several settings existed in
+`config.py` but were never passed through the compose file, so they were only reachable by editing
+`docker-compose.yml`. Documenting them honestly would have meant writing that down as a limitation;
+wiring them up was the smaller change, and now every documented variable can be set from `.env`.
+
+Renovate needed no proof in the end — it had already opened and merged #5 on its own while phase 4
+was being built.
 
 ## 6. Open points
 
