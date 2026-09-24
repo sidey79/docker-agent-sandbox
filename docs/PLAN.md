@@ -216,6 +216,12 @@ was being built.
   Adding one surfaced a choice the design had not made — an agent CLI that brings its own tooling has
   no use for a devcontainer — so `AGENT_CMD_LOCATION` now decides whether the command runs inside the
   devcontainer or in the agent container itself.
+
+  Running it exposed a trap worth recording: without `--permission-mode acceptEdits`, Claude Code
+  stops at the first file edit waiting for an approval that cannot come in `-p` mode — and exits `0`,
+  so the job is stored as `succeeded` having done nothing. The dispatcher has no way to tell that
+  apart from real success, which makes it an argument for judging agent runs by their output rather
+  than by their exit code.
 - **Job store durability.** SQLite in a volume is the plan. If job history turns out not to matter,
   in-memory would be simpler.
 - **Egress from agent containers.** Settled structurally in phase 4 but not restricted: under `host`

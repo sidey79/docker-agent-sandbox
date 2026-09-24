@@ -155,8 +155,12 @@ in a devcontainer. Three settings in `.env`:
 ```sh
 AGENT_IMAGE=docker-agent-sandbox/agent:claude
 AGENT_CMD_LOCATION=agent
-AGENT_CMD=claude -p "$(cat AGENT_TASK.md)"
+AGENT_CMD=claude -p "$(cat AGENT_TASK.md)" --permission-mode acceptEdits
 ```
+
+`--permission-mode acceptEdits` is not optional for a job that changes files, and
+leaving it off fails in the worst possible way — see
+[Claude Code reports success without doing anything](#claude-code-reports-success-without-doing-anything).
 
 Authenticate it one of two ways. **An API key** from the Console, billed by
 usage — set `ANTHROPIC_API_KEY` and leave `AGENT_CREDENTIAL_ENV` alone. **Or a
@@ -398,6 +402,22 @@ down, two containers answer to it. `docker compose ps -a` shows the stray one.
 Under `host`, agent containers run on `agent_run_net`, which is deliberately not internal. If jobs
 fail at `git clone` with a DNS error, check that `AGENT_NETWORK` still names an existing, non-internal
 network — `agent_net` is internal and will fail exactly this way.
+
+### Claude Code reports success without doing anything
+
+A job finishes in seconds, `status` is `succeeded`, `exitCode` is `0`, and the log
+ends with:
+
+```
+Waiting on permission to edit README.md — please approve to continue.
+```
+
+Claude Code asks before editing files. In `-p` mode there is nobody to approve, so
+it stops — and exits `0` anyway, which the dispatcher can only read as success.
+Add `--permission-mode acceptEdits` to `AGENT_CMD` for jobs that change files.
+
+Worth knowing because the failure is silent: nothing in the status tells you the
+job did nothing. If jobs come back suspiciously fast, read the log.
 
 ### A job says `failed` but something is still running
 
