@@ -211,8 +211,11 @@ was being built.
 
 - **Egress filtering.** Agents currently reach the internet unrestricted. An allowlisting HTTP proxy
   in front of them is a possible later stage; deliberately out of scope for the first round.
-- **Which agent CLI.** The image stays generic for now; Claude Code, Codex or Gemini CLI can be added
-  as separate build targets once the pipeline works.
+- **Which agent CLI.** Partly settled: the image has a `claude` build target with Claude Code, and
+  the base target stays generic. Codex or Gemini CLI would be further targets on the same pattern.
+  Adding one surfaced a choice the design had not made — an agent CLI that brings its own tooling has
+  no use for a devcontainer — so `AGENT_CMD_LOCATION` now decides whether the command runs inside the
+  devcontainer or in the agent container itself.
 - **Job store durability.** SQLite in a volume is the plan. If job history turns out not to matter,
   in-memory would be simpler.
 - **Egress from agent containers.** Settled structurally in phase 4 but not restricted: under `host`
