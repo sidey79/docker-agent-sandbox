@@ -3,9 +3,9 @@
 A Docker stack that runs AI coding agents in disposable containers, reachable over an HTTP API so
 that automation such as n8n can submit jobs without ever touching a Docker socket itself.
 
-> **Status: working end to end.** Phases 1–5 of [`docs/PLAN.md`](docs/PLAN.md) are done — the
-> compose stack with both Docker backends, the agent image, the dispatcher, and n8n example
-> workflows. What is left is the operating documentation and the first Renovate run.
+> **Status: complete.** All six phases of [`docs/PLAN.md`](docs/PLAN.md) are done — the compose
+> stack with both Docker backends, the agent image, the dispatcher, n8n example workflows and the
+> operating documentation. What remains is the open points in §6, egress filtering chief among them.
 
 ## Idea in one picture
 
@@ -52,54 +52,10 @@ docker run --rm --network agentsandbox_agent_net \
   -e DOCKER_HOST=tcp://docker-proxy:2375 docker:cli docker version
 ```
 
-### Host requirement for the `dind` profile
-
-The `dind` profile runs `docker:dind-rootless`, whose `rootlesskit` needs to create an unprivileged
-user namespace. Ubuntu 23.10 and newer block that by default
-(`kernel.apparmor_restrict_unprivileged_userns=1`), and the container then dies at startup with:
-
-```
-[rootlesskit:parent] error: failed to start the child: fork/exec /proc/self/exe: operation not permitted
-```
-
-`privileged: true` does **not** help here, because the restriction applies to the unprivileged
-`rootless` user inside the container rather than to the container itself. Grant the exception to
-`rootlesskit` alone, once per host:
-
-```sh
-cat <<'EOT' | sudo tee /etc/apparmor.d/usr.local.bin.rootlesskit
-abi <abi/4.0>,
-include <tunables/global>
-
-/usr/local/bin/rootlesskit flags=(unconfined) {
-  userns,
-
-  # Site-specific additions and overrides. See local/README for details.
-  include if exists <local/usr.local.bin.rootlesskit>
-}
-EOT
-sudo systemctl restart apparmor.service
-```
-
-Turning the restriction off globally (`sysctl kernel.apparmor_restrict_unprivileged_userns=0`) also
-works but lifts it for every unprivileged process on the host, so the profile above is preferred.
-The `host` profile needs none of this.
-
-The two settings this needs *inside* the container — `/dev/net/tun` for slirp4netns and
-`systempaths=unconfined` so the daemon's own containers can mount `/proc` — are already in the
-compose file and need nothing from you.
-
-### Switching profiles
-
-`docker compose down` only removes services belonging to the profile currently selected, so changing
-`COMPOSE_PROFILES` in a running stack leaves the old profile's proxy behind — and both answer to the
-`docker-proxy` alias. Take the stack down before you switch:
-
-```sh
-docker compose down          # with the OLD COMPOSE_PROFILES still set
-# ...edit .env...
-docker compose up -d
-```
+Running it for real takes a few things this quickstart skips: the host prerequisite for `dind`,
+switching profiles without leaving a stray proxy behind, loading the agent image into the dind
+daemon, backups, pruning, and what each error message actually means.
+[`docs/OPERATIONS.md`](docs/OPERATIONS.md) is the manual.
 
 ## The agent image
 
@@ -152,6 +108,16 @@ Read [`docs/PLAN.md`](docs/PLAN.md#security-boundary) before running this with t
 In short: anything allowed to create containers on the host daemon is effectively root on the host,
 socket proxy or not. The `dind` profile exists so that the blast radius stays inside a dedicated
 daemon.
+
+## Documentation
+
+| Document | What it covers |
+| --- | --- |
+| [`docs/OPERATIONS.md`](docs/OPERATIONS.md) | Install, configure, run, watch, maintain, repair. The manual. |
+| [`docs/API.md`](docs/API.md) | The HTTP contract n8n talks to. |
+| [`docs/AGENT_CONTRACT.md`](docs/AGENT_CONTRACT.md) | What goes into an agent container and what comes back out. |
+| [`docs/PLAN.md`](docs/PLAN.md) | The design, why it is shaped this way, and what is still open. |
+| [`examples/README.md`](examples/README.md) | The two n8n workflows and how to import them. |
 
 ## License
 
