@@ -11,6 +11,10 @@ services:
       context: ./api
     volumes:
       - api_data:/data
+      # A private CA for callback URLs. EXTRA_CA_BUNDLE_SOURCE defaults to the
+      # bundle the container already ships, so the mount is a no-op until you
+      # point it at your own file — compose cannot skip a mount conditionally.
+      - ${EXTRA_CA_BUNDLE_SOURCE:-/etc/ssl/certs/ca-certificates.crt}:/etc/ssl/extra-ca.pem:ro
     environment:
       - TZ=${TZ:-Europe/Berlin}
       - DOCKER_HOST=tcp://docker-proxy:2375
@@ -26,6 +30,9 @@ services:
       - AGENT_PIDS_LIMIT=${AGENT_PIDS_LIMIT:-512}
       - AGENT_DEVCONTAINER_IMAGE=${AGENT_DEVCONTAINER_IMAGE:-}
       - CALLBACK_TIMEOUT_SECONDS=${CALLBACK_TIMEOUT_SECONDS:-15}
+      # Set when a callback URL is served by a private CA; the file is
+      # mounted below. Added to the system trust store, not replacing it.
+      - EXTRA_CA_BUNDLE=${EXTRA_CA_BUNDLE:-}
       # Where agent containers run under the host backend, and how they reach
       # the dind daemon under the other. Defaults match this compose file; they
       # only need changing if the project name or the dind image does.

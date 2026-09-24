@@ -60,6 +60,10 @@ class Settings(BaseSettings):
 
     # --- Callbacks ---------------------------------------------------------
     callback_timeout_seconds: float = 15.0
+    # A PEM file with additional trusted CAs, for a callback URL served by a
+    # private CA. Added to the system trust store rather than replacing it, so
+    # public certificates keep working.
+    extra_ca_bundle: str = ""
 
     @property
     def credential_names(self) -> list[str]:
