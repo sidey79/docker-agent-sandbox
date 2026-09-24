@@ -1,7 +1,7 @@
 # Plan: docker-agent-sandbox
 
 Design and phase plan for running AI coding agents in disposable Docker containers, driven by n8n
-over HTTP. Phases 1–4 are implemented; phases 5–6 are the remaining work.
+over HTTP. Phases 1–5 are implemented; phase 6 is the remaining work.
 
 ## 1. Goal
 
@@ -181,8 +181,15 @@ One thing that follows from the proxy's allowlist: `ALLOW_STOP` and `ALLOW_RESTA
 dispatcher cannot stop or kill a container. It ends one with `remove(force=True)`, which the
 allowlist does permit, and which is all a disposable agent ever needs.
 
-**Phase 5 — n8n integration.** Example workflow in `examples/`, reachability over
-`network_backend_net` verified end to end.
+**Phase 5 — n8n integration.** *(done)*
+Example workflows in [`examples/`](../examples), reachability over `network_backend_net` verified end
+to end. Both shapes §4 offers are covered: a callback workflow that returns a `jobId` at once and
+reacts to the completion webhook, and a polling workflow that answers synchronously.
+
+Both carry an HTTP Header Auth credential rather than the token itself, so the files can be
+committed. The callback URL is the one value that cannot be guessed for someone else's install — it
+has to name this n8n as the *dispatcher* sees it — so it sits in a `Config` node at the front rather
+than being buried in an HTTP node.
 
 **Phase 6 — documentation and Renovate.** Operating instructions in the README, first Renovate PR as
 proof the update path works.

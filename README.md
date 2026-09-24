@@ -3,9 +3,9 @@
 A Docker stack that runs AI coding agents in disposable containers, reachable over an HTTP API so
 that automation such as n8n can submit jobs without ever touching a Docker socket itself.
 
-> **Status: working end to end.** Phases 1–4 of [`docs/PLAN.md`](docs/PLAN.md) are done — the
-> compose stack with both Docker backends, the agent image, and the dispatcher. What is left is the
-> n8n example workflow and the operating documentation.
+> **Status: working end to end.** Phases 1–5 of [`docs/PLAN.md`](docs/PLAN.md) are done — the
+> compose stack with both Docker backends, the agent image, the dispatcher, and n8n example
+> workflows. What is left is the operating documentation and the first Renovate run.
 
 ## Idea in one picture
 
@@ -135,6 +135,16 @@ n8n stay unprivileged. And it builds every container spec from its own configura
 task text and at most a repository, never an image, a mount, an environment variable or a command.
 `AGENT_CMD` — the command that actually runs inside the devcontainer — comes from `.env`, because a
 request that could choose it would be remote code execution with extra steps.
+
+## Driving it from n8n
+
+Two ready-made workflows live in [`examples/`](examples/): one that submits a job and reacts to the
+completion webhook, and one that polls until the job is done. Import the one that fits and give it an
+HTTP Header Auth credential holding the bearer token — [`examples/README.md`](examples/README.md) has
+the details.
+
+n8n needs nothing but `network_backend_net` in common with the dispatcher. No Docker socket, no
+mount, no privileges of its own — that is the entire reason this stack is shaped the way it is.
 
 ## Security boundary
 
