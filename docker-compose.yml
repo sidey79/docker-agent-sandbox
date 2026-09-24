@@ -22,7 +22,18 @@ services:
       - AGENT_JOB_TIMEOUT_SECONDS=${AGENT_JOB_TIMEOUT_SECONDS:-1800}
       - AGENT_MEM_LIMIT=${AGENT_MEM_LIMIT:-2g}
       - AGENT_CPUS=${AGENT_CPUS:-2}
-      # Handed to agent containers from this environment, never from a request.
+      - AGENT_PIDS_LIMIT=${AGENT_PIDS_LIMIT:-512}
+      - AGENT_DEVCONTAINER_IMAGE=${AGENT_DEVCONTAINER_IMAGE:-}
+      - CALLBACK_TIMEOUT_SECONDS=${CALLBACK_TIMEOUT_SECONDS:-15}
+      # Where agent containers run under the host backend, and how they reach
+      # the dind daemon under the other. Defaults match this compose file; they
+      # only need changing if the project name or the dind image does.
+      - AGENT_NETWORK=${AGENT_NETWORK:-agentsandbox_agent_run_net}
+      - AGENT_DIND_SOCKET=${AGENT_DIND_SOCKET:-/home/rootless/docker.sock}
+      - AGENT_DIND_DOCKER_GID=${AGENT_DIND_DOCKER_GID:-2375}
+      # Names of the variables below that agent containers receive. Values come
+      # from this environment, never from a request.
+      - AGENT_CREDENTIAL_ENV=${AGENT_CREDENTIAL_ENV:-ANTHROPIC_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
     networks:
       # No published port: n8n reaches it by name on the backend network.
