@@ -113,7 +113,8 @@ dispatcher; the rest of the table is settable but rarely worth changing.
 | `COMPOSE_PROFILES` | `dind` | `dind` or `host`. Exactly one — the dispatcher reads it as `AGENT_BACKEND`, and a list of two leaves it undecided. |
 | `AGENT_API_TOKEN` | *(required)* | Bearer token. The stack refuses to start without it. |
 | `AGENT_IMAGE` | `docker-agent-sandbox/agent:local` | Image used for every job. |
-| `AGENT_CMD` | *(empty)* | Command run inside the devcontainer. This is where an agent CLI goes. Empty means "bring the devcontainer up and stop", which is a useful smoke test. |
+| `AGENT_CMD` | *(empty)* | Command run once per job. This is where an agent CLI goes. Empty means "bring the devcontainer up and stop", which is a useful smoke test. |
+| `AGENT_CMD_LOCATION` | `devcontainer` | `devcontainer` runs `AGENT_CMD` inside the devcontainer; `agent` runs it in the agent container and starts no devcontainer. See [Running Claude Code as the agent](#running-claude-code-as-the-agent). |
 | `ANTHROPIC_API_KEY` | *(empty)* | Handed to agent containers. See [Credentials](#credentials). |
 
 ### Limits
@@ -133,12 +134,65 @@ Enforced by the dispatcher on every container, never negotiable by a job.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `AGENT_DEVCONTAINER_IMAGE` | `mcr.microsoft.com/devcontainers/base:bookworm` | Used when a repository ships no `devcontainer.json`. |
-| `AGENT_NETWORK` | `agentsandbox_agent_run_net` | Network for agent containers under `host`. Only needs changing if the compose project name is not `Agent Sandbox`. |
+| `AGENT_NETWORK` | `agentsandbox_agent_run_net` | Network for agent containers under `host` that start a devcontainer. Reaches the proxy. Only needs changing if the compose project name is not `Agent Sandbox`. |
+| `AGENT_EGRESS_NETWORK` | `agentsandbox_agent_egress_net` | Network for agent containers under `host` that get no Docker access. Egress only — the proxy is deliberately not on it. |
 | `AGENT_DIND_SOCKET` | `/home/rootless/docker.sock` | The dind daemon's socket, as a path inside the dind container. |
 | `AGENT_DIND_DOCKER_GID` | `2375` | gid of the `docker` group in the `docker:dind` image. Without it the agent cannot open the socket it was handed. |
 | `AGENT_CREDENTIAL_ENV` | `ANTHROPIC_API_KEY` | Comma-separated names of variables forwarded to agents. |
 | `CALLBACK_TIMEOUT_SECONDS` | `15` | How long a completion webhook may take. |
 | `DB_PATH` | `/data/jobs.sqlite3` | Job store inside the dispatcher container. |
+
+### Running Claude Code as the agent
+
+The agent image has a second build target with Claude Code baked in:
+
+```sh
+docker build --target claude -t docker-agent-sandbox/agent:claude agent/
+```
+
+Claude Code brings its own tooling, so it runs in the agent container rather than
+in a devcontainer — and because it starts no devcontainer, the dispatcher gives
+it no Docker access at all: no `DOCKER_HOST`, no socket, and a network without
+the `docker-proxy` alias. Three settings in `.env`:
+
+```sh
+AGENT_IMAGE=docker-agent-sandbox/agent:claude
+AGENT_CMD_LOCATION=agent
+AGENT_CMD=claude -p "$(cat AGENT_TASK.md)" --permission-mode acceptEdits
+```
+
+`--permission-mode acceptEdits` is not optional for a job that changes files, and
+leaving it off fails in the worst possible way — see
+[Claude Code reports success without doing anything](#claude-code-reports-success-without-doing-anything).
+
+Authenticate it one of two ways. **An API key** from the Console, billed by
+usage — set `ANTHROPIC_API_KEY` and leave `AGENT_CREDENTIAL_ENV` alone. **Or a
+Claude subscription**, which needs a one-time browser login to mint a token:
+
+```sh
+claude setup-token          # prints a token; it is not saved anywhere
+```
+
+Put it in `CLAUDE_CODE_OAUTH_TOKEN` and name that variable in
+`AGENT_CREDENTIAL_ENV`, so the dispatcher forwards it:
+
+```sh
+AGENT_CREDENTIAL_ENV=CLAUDE_CODE_OAUTH_TOKEN
+CLAUDE_CODE_OAUTH_TOKEN=<the token>
+```
+
+The token lasts a year, authenticates against your subscription's quota, and can
+only make model requests — no Remote Control, no claude.ai connectors.
+
+Two things to weigh before pointing a subscription at this. Every agent shares
+one quota, so concurrent jobs compete with each other and with your own use of
+Claude Code. And an agent that clones a repository is reading text written by
+someone else: a prompt injection in that repository runs with whatever credential
+you handed the container. That is the risk `PLAN.md` §3 describes for agent
+credentials generally, and a subscription token is a credential like any other.
+
+Under `dind`, remember to load the image into the daemon after building it — see
+[First run](#under-dind-load-the-agent-image-into-the-daemon).
 
 ### Credentials
 
@@ -351,6 +405,22 @@ down, two containers answer to it. `docker compose ps -a` shows the stray one.
 Under `host`, agent containers run on `agent_run_net`, which is deliberately not internal. If jobs
 fail at `git clone` with a DNS error, check that `AGENT_NETWORK` still names an existing, non-internal
 network — `agent_net` is internal and will fail exactly this way.
+
+### Claude Code reports success without doing anything
+
+A job finishes in seconds, `status` is `succeeded`, `exitCode` is `0`, and the log
+ends with:
+
+```
+Waiting on permission to edit README.md — please approve to continue.
+```
+
+Claude Code asks before editing files. In `-p` mode there is nobody to approve, so
+it stops — and exits `0` anyway, which the dispatcher can only read as success.
+Add `--permission-mode acceptEdits` to `AGENT_CMD` for jobs that change files.
+
+Worth knowing because the failure is silent: nothing in the status tells you the
+job did nothing. If jobs come back suspiciously fast, read the log.
 
 ### A job says `failed` but something is still running
 

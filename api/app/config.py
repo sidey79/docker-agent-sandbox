@@ -36,9 +36,16 @@ class Settings(BaseSettings):
     # proxy and has egress, so a job can clone a repository.
     agent_network: str = "agentsandbox_agent_run_net"
 
+    # Network for agent containers that get no Docker access: egress only, and
+    # deliberately without the `docker-proxy` alias.
+    agent_egress_network: str = "agentsandbox_agent_egress_net"
+
     # --- Agent container spec ---------------------------------------------
     agent_image: str = "docker-agent-sandbox/agent:local"
     agent_cmd: str = ""
+    # Where AGENT_CMD runs: inside the devcontainer, or in the agent
+    # container itself. The latter is for images with a CLI baked in.
+    agent_cmd_location: Literal["devcontainer", "agent"] = "devcontainer"
     agent_devcontainer_image: str = ""
 
     agent_max_concurrency: int = 2
