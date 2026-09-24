@@ -1,0 +1,238 @@
+{
+  "name": "Agent job (callback)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agent-job",
+        "responseMode": "responseNode"
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -220,
+        0
+      ],
+      "id": "job-request",
+      "name": "Job request",
+      "webhookId": "agent-job"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "dispatcherUrl",
+              "value": "http://agent-api:8080",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "callbackUrl",
+              "value": "http://n8n:5678/webhook/agent-job-done",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        0,
+        0
+      ],
+      "id": "config",
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.dispatcherUrl }}/jobs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ task: $json.body.task, repoUrl: $json.body.repoUrl, repoRef: $json.body.repoRef, callbackUrl: $json.callbackUrl }) }}"
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        0
+      ],
+      "id": "submit-job",
+      "name": "Submit job",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "agent-api-token",
+          "name": "docker-agent-sandbox dispatcher"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ accepted: true, jobId: $json.jobId }) }}"
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        0
+      ],
+      "id": "respond-with-jobid",
+      "name": "Respond with jobId"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agent-job-done",
+        "responseMode": "onReceived"
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -220,
+        240
+      ],
+      "id": "job-finished",
+      "name": "Job finished",
+      "webhookId": "agent-job-done"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.body.status }}",
+              "rightValue": "succeeded",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        0,
+        240
+      ],
+      "id": "succeeded",
+      "name": "Succeeded?"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        240,
+        160
+      ],
+      "id": "handle-success",
+      "name": "Handle success"
+    },
+    {
+      "parameters": {
+        "url": "=http://agent-api:8080/jobs/{{ $json.body.jobId }}/logs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        340
+      ],
+      "id": "fetch-logs",
+      "name": "Fetch logs",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "agent-api-token",
+          "name": "docker-agent-sandbox dispatcher"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Job request": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Submit job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Submit job": {
+      "main": [
+        [
+          {
+            "node": "Respond with jobId",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Job finished": {
+      "main": [
+        [
+          {
+            "node": "Succeeded?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Succeeded?": {
+      "main": [
+        [
+          {
+            "node": "Handle success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch logs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false
+}
