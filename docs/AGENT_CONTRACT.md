@@ -17,7 +17,8 @@ to look at a filesystem.
 | `REPO_URL` | no | Cloned with `--depth 1`. Without it the job starts from an empty workspace. |
 | `REPO_REF` | no | Branch or tag to clone. Ignored without `REPO_URL`. |
 | `WORKSPACE_VOLUME` | no | Name of the job volume. See [Why the volume name is needed](#why-the-volume-name-is-needed). |
-| `AGENT_CMD` | no | Shell command run inside the devcontainer. Without it the container only brings the devcontainer up, which is a useful smoke test on its own. |
+| `AGENT_CMD` | no | Shell command run once per job. Without it the container only brings the devcontainer up, which is a useful smoke test on its own. |
+| `AGENT_CMD_LOCATION` | no | `devcontainer` (default) or `agent` — see [Where the command runs](#where-the-command-runs). |
 | `AGENT_DEVCONTAINER_IMAGE` | no | Image used when the repository ships no `devcontainer.json`. Defaults to `mcr.microsoft.com/devcontainers/base:bookworm`. |
 | `DOCKER_HOST` | yes in practice | Where the agent creates the devcontainer. In the stack this is `tcp://docker-proxy:2375`. |
 | `WORKSPACE` | no | Mount point of the job volume. Defaults to `/workspace`. |
@@ -26,6 +27,25 @@ to look at a filesystem.
 The job volume is mounted at `$WORKSPACE`. The image creates that directory owned by `node`, so a
 fresh named volume inherits that ownership and the unprivileged user can write to it without anyone
 having to run `chown` against a volume.
+
+## Where the command runs
+
+`AGENT_CMD_LOCATION` decides this, and it decides whether a devcontainer is
+started at all.
+
+`devcontainer` (the default) brings one up and runs the command inside it with
+`devcontainer exec`. The command sees the repository's own toolchain, which is
+the whole reason the devcontainer is there.
+
+`agent` runs the command in the agent container itself, with the repository as
+the working directory, and starts no devcontainer. This is for an image with an
+agent CLI baked in — the `claude` build target — where the CLI brings its own
+tooling and a devcontainer would be a container started for nothing. With this
+setting `AGENT_CMD` is required: there is nothing else for the job to do.
+
+The trade-off is real and worth stating: under `agent` the command does **not**
+get the repository's toolchain. A job that needs the project's exact Node or
+Python version wants `devcontainer`.
 
 ## Output
 

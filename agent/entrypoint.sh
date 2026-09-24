@@ -74,43 +74,75 @@ fi
 # command line.
 printf '%s\n' "${TASK}" > "${WORKSPACE_FOLDER}/AGENT_TASK.md"
 
-# --- devcontainer ------------------------------------------------------------
+# --- agent ------------------------------------------------------------------
+#
+# AGENT_CMD_LOCATION decides where the command runs, and that decides whether a
+# devcontainer is needed at all:
+#
+#   devcontainer  (default) bring one up and run the command inside it, so the
+#                 command sees the repository's own toolchain.
+#   agent         run the command here, in this container. For an agent CLI that
+#                 is baked into the image and brings its own tooling — Claude
+#                 Code in the `claude` build target — a devcontainer would be a
+#                 container started for nothing.
 
-override_config="${WORKSPACE_FOLDER}/.devcontainer/devcontainer.agent.json"
-node /usr/local/lib/agent/devcontainer-config.mjs \
-  --workspace-folder "${WORKSPACE_FOLDER}" \
-  --out "${override_config}" \
-  ${WORKSPACE_VOLUME:+--volume "${WORKSPACE_VOLUME}"} \
-  ${AGENT_DEVCONTAINER_IMAGE:+--default-image "${AGENT_DEVCONTAINER_IMAGE}"}
+AGENT_CMD_LOCATION="${AGENT_CMD_LOCATION:-devcontainer}"
+case "${AGENT_CMD_LOCATION}" in
+  devcontainer|agent) ;;
+  *)
+    summary="AGENT_CMD_LOCATION must be 'devcontainer' or 'agent', got '${AGENT_CMD_LOCATION}'"
+    log "${summary}"
+    exit 2
+    ;;
+esac
 
-log "bringing up the devcontainer"
-devcontainer up \
-  --workspace-folder "${WORKSPACE_FOLDER}" \
-  --override-config "${override_config}" \
-  --id-label "${JOB_LABEL}" \
-  --remove-existing-container
+if [ "${AGENT_CMD_LOCATION}" = "agent" ]; then
+  if [ -z "${AGENT_CMD:-}" ]; then
+    summary="AGENT_CMD_LOCATION=agent needs an AGENT_CMD; there is nothing else to run here"
+    log "${summary}"
+    exit 2
+  fi
+  log "running the agent command in the agent container"
+  cd "${WORKSPACE_FOLDER}"
+  set +e
+  bash -lc "${AGENT_CMD}"
+  exit_code=$?
+  set -e
+else
+  override_config="${WORKSPACE_FOLDER}/.devcontainer/devcontainer.agent.json"
+  node /usr/local/lib/agent/devcontainer-config.mjs \
+    --workspace-folder "${WORKSPACE_FOLDER}" \
+    --out "${override_config}" \
+    ${WORKSPACE_VOLUME:+--volume "${WORKSPACE_VOLUME}"} \
+    ${AGENT_DEVCONTAINER_IMAGE:+--default-image "${AGENT_DEVCONTAINER_IMAGE}"}
 
-# --- agent -------------------------------------------------------------------
+  log "bringing up the devcontainer"
+  devcontainer up \
+    --workspace-folder "${WORKSPACE_FOLDER}" \
+    --override-config "${override_config}" \
+    --id-label "${JOB_LABEL}" \
+    --remove-existing-container
 
-if [ -z "${AGENT_CMD:-}" ]; then
-  # Phase 3 ships no agent CLI on purpose (docs/PLAN.md §6), so a job without
-  # AGENT_CMD is a successful smoke test of the pipeline rather than an error.
-  status="succeeded"
-  exit_code=0
-  summary="devcontainer is up; no AGENT_CMD was configured, so nothing was run inside it"
-  log "${summary}"
-  exit 0
+  if [ -z "${AGENT_CMD:-}" ]; then
+    # No agent CLI is baked into the base image on purpose (docs/PLAN.md §6), so
+    # a job without AGENT_CMD is a smoke test of the pipeline rather than an error.
+    status="succeeded"
+    exit_code=0
+    summary="devcontainer is up; no AGENT_CMD was configured, so nothing was run inside it"
+    log "${summary}"
+    exit 0
+  fi
+
+  log "running the agent command inside the devcontainer"
+  set +e
+  devcontainer exec \
+    --workspace-folder "${WORKSPACE_FOLDER}" \
+    --override-config "${override_config}" \
+    --id-label "${JOB_LABEL}" \
+    -- bash -lc "${AGENT_CMD}"
+  exit_code=$?
+  set -e
 fi
-
-log "running the agent command inside the devcontainer"
-set +e
-devcontainer exec \
-  --workspace-folder "${WORKSPACE_FOLDER}" \
-  --override-config "${override_config}" \
-  --id-label "${JOB_LABEL}" \
-  -- bash -lc "${AGENT_CMD}"
-exit_code=$?
-set -e
 
 if [ "${exit_code}" -eq 0 ]; then
   status="succeeded"

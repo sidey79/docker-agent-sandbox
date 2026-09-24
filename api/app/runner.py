@@ -235,6 +235,7 @@ class JobRunner:
             environment["REPO_REF"] = job["repo_ref"]
         if settings.agent_cmd:
             environment["AGENT_CMD"] = settings.agent_cmd
+            environment["AGENT_CMD_LOCATION"] = settings.agent_cmd_location
         if settings.agent_devcontainer_image:
             environment["AGENT_DEVCONTAINER_IMAGE"] = settings.agent_devcontainer_image
         environment.update(_credentials(settings))

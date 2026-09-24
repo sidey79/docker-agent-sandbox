@@ -18,12 +18,14 @@ services:
       - AGENT_API_TOKEN=${AGENT_API_TOKEN:?set AGENT_API_TOKEN in .env}
       - AGENT_IMAGE=${AGENT_IMAGE:-docker-agent-sandbox/agent:local}
       - AGENT_CMD=${AGENT_CMD:-}
+      - AGENT_CMD_LOCATION=${AGENT_CMD_LOCATION:-devcontainer}
       - AGENT_MAX_CONCURRENCY=${AGENT_MAX_CONCURRENCY:-2}
       - AGENT_JOB_TIMEOUT_SECONDS=${AGENT_JOB_TIMEOUT_SECONDS:-1800}
       - AGENT_MEM_LIMIT=${AGENT_MEM_LIMIT:-2g}
       - AGENT_CPUS=${AGENT_CPUS:-2}
       # Handed to agent containers from this environment, never from a request.
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
     networks:
       # No published port: n8n reaches it by name on the backend network.
       - backend_net

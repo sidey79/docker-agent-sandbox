@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     # --- Agent container spec ---------------------------------------------
     agent_image: str = "docker-agent-sandbox/agent:local"
     agent_cmd: str = ""
+    # Where AGENT_CMD runs: inside the devcontainer, or in the agent
+    # container itself. The latter is for images with a CLI baked in.
+    agent_cmd_location: Literal["devcontainer", "agent"] = "devcontainer"
     agent_devcontainer_image: str = ""
 
     agent_max_concurrency: int = 2
