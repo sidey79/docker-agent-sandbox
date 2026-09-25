@@ -239,6 +239,34 @@ was being built.
   not internal; under `dind` they run inside that daemon and use its egress. A second network per
   container was avoided because connecting one needs `NETWORKS=1` on the proxy, which would also let
   the dispatcher delete networks. What those agents may *reach* is still the open question above.
+- **Interactive sessions in the container.** *(Idea, deliberately not built.)* Every job today is one
+  command followed by teardown. The wish is the other shape: start an agent in the chosen repository
+  inside the container, then keep steering it from a browser, with the container's files, tools and
+  MCP servers still at hand — including ones that only reach internal networks, which rules out a
+  cloud session on claude.ai. Two ways were looked at. They trade the same risk in opposite
+  directions, which is the main thing worth remembering about them.
+
+  *Claude Code Remote Control* (`claude remote-control --spawn session`) fits the network model well:
+  it only makes outbound HTTPS requests, relays through Anthropic, opens no port, and Trusted Devices
+  can restrict who steers a session. It fails on credentials. Run in the container, it refuses the
+  `setup-token` outright — "Remote Control requires a full-scope login token. Long-lived tokens … are
+  limited to inference-only for security reasons" — and API keys are not supported either. A full
+  claude.ai login can also reach claude.ai connectors and manage sessions, so a prompt-injected agent
+  would hold the account rather than an inference quota. Mounting the host's own login is worse still:
+  host and container would share one refresh token, and a refresh on either side can lock out the
+  other. Workable only with a separate login kept in its own volume.
+
+  *A web terminal* (ttyd, currently 1.7.7, a single static binary) inverts that. An interactive
+  `claude` only makes model requests, so per the documentation the inference-only `setup-token`
+  should be enough — not yet confirmed by running it; a first attempt under a pseudo-terminal produced
+  no usable output before it hung. What it gives up is the network model: it would be the first thing
+  in the sandbox that *accepts* connections, so it needs its own authentication in front, at minimum
+  behind the existing Caddy and Authelia rather than on a published port. And whoever holds the
+  terminal holds a shell in the container, with everything that container can reach — write access to
+  a mounted workspace, and the daemon through the proxy under `AGENT_DOCKER_ACCESS=always`.
+
+  Either way the dispatcher would need a second job shape: long-lived, without the hard timeout, with
+  an explicit end, and handing back where to connect.
 
 ## 7. Decisions taken after the first draft
 
