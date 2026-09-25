@@ -35,6 +35,10 @@ _POLL_INTERVAL_SECONDS = 2.0
 # reach `git clone` as an option rather than as a URL.
 _REPO_URL_RE = re.compile(r"^https?://[^\s]+$")
 _REPO_REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+# A single directory name. Anything that could climb out of the mount — a
+# leading slash, a `..`, a nested path — is refused rather than normalised,
+# because normalising is where path checks usually go wrong.
+_WORKSPACE_DIR_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 def validate_repo(url: str | None, ref: str | None) -> str | None:
@@ -46,6 +50,15 @@ def validate_repo(url: str | None, ref: str | None) -> str | None:
             return "repoRef must be a plain branch or tag name"
         if url is None:
             return "repoRef is meaningless without repoUrl"
+    return None
+
+
+def validate_workspace_dir(value: str | None) -> str | None:
+    """Return an error message, or None when the directory name is acceptable."""
+    if value is None:
+        return None
+    if not _WORKSPACE_DIR_RE.match(value) or ".." in value:
+        return "workspaceDir must be a single plain directory name inside the workspace mount"
     return None
 
 
@@ -243,10 +256,21 @@ class JobRunner:
             environment["AGENT_DEVCONTAINER_IMAGE"] = settings.agent_devcontainer_image
         environment.update(_credentials(settings))
 
+        if settings.agent_workspace_mount:
+            # A directory from the host in place of the per-job volume. The path
+            # is configuration; a job only picks a subdirectory inside it.
+            workspace_source: str = settings.agent_workspace_mount
+            workspace_mode = settings.agent_workspace_mount_mode
+            environment["WORKSPACE_MOUNTED"] = "1"
+            environment["REPO_DIR_NAME"] = job["workspace_dir"] or "."
+        else:
+            workspace_source = volume_name
+            workspace_mode = "rw"
+
         spec: dict[str, Any] = {
             "image": settings.agent_image,
             "environment": environment,
-            "volumes": {volume_name: {"bind": "/workspace", "mode": "rw"}},
+            "volumes": {workspace_source: {"bind": "/workspace", "mode": workspace_mode}},
             "labels": {AGENT_LABEL: job["id"]},
             "detach": True,
             "security_opt": ["no-new-privileges:true"],
@@ -256,11 +280,16 @@ class JobRunner:
             "pids_limit": settings.agent_pids_limit,
         }
 
-        # Docker access is granted only to a job that starts a devcontainer.
-        # A job running its command in the agent container has no use for it,
-        # and the agent runs model-directed code — so it does not get a handle
-        # on the daemon just in case.
-        if settings.agent_cmd_location != "devcontainer":
+        # Docker access is granted only to a job that needs it. A job running its
+        # command in the agent container normally has no use for a daemon, and
+        # the agent runs model-directed code — so it does not get a handle on one
+        # just in case. `always` is for tooling that does need one, such as an
+        # MCP server that runs `docker run`.
+        wants_docker = settings.agent_docker_access == "always" or (
+            settings.agent_docker_access == "auto"
+            and settings.agent_cmd_location == "devcontainer"
+        )
+        if not wants_docker:
             if settings.agent_backend != "dind":
                 # Not agent_network: that one carries the `docker-proxy` alias,
                 # and withholding DOCKER_HOST while leaving the proxy one

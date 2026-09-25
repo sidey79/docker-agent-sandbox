@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     task          TEXT NOT NULL,
     repo_url      TEXT,
     repo_ref      TEXT,
+    workspace_dir TEXT,
     callback_url  TEXT,
     container_id  TEXT,
     volume_name   TEXT,
@@ -45,6 +46,11 @@ class JobStore:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.executescript(_SCHEMA)
+            # CREATE TABLE IF NOT EXISTS leaves an existing table alone, so a
+            # store written by an older version needs the column added.
+            existing = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}
+            if "workspace_dir" not in existing:
+                conn.execute("ALTER TABLE jobs ADD COLUMN workspace_dir TEXT")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -66,12 +72,13 @@ class JobStore:
         repo_url: str | None,
         repo_ref: str | None,
         callback_url: str | None,
+        workspace_dir: str | None = None,
     ) -> dict[str, Any]:
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO jobs (id, status, created_at, task, repo_url, repo_ref, callback_url)"
-                " VALUES (?, 'queued', ?, ?, ?, ?, ?)",
-                (job_id, time.time(), task, repo_url, repo_ref, callback_url),
+                "INSERT INTO jobs (id, status, created_at, task, repo_url, repo_ref,"
+                " callback_url, workspace_dir) VALUES (?, 'queued', ?, ?, ?, ?, ?, ?)",
+                (job_id, time.time(), task, repo_url, repo_ref, callback_url, workspace_dir),
             )
         return self.get(job_id)  # type: ignore[return-value]
 

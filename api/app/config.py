@@ -46,6 +46,21 @@ class Settings(BaseSettings):
     # Where AGENT_CMD runs: inside the devcontainer, or in the agent
     # container itself. The latter is for images with a CLI baked in.
     agent_cmd_location: Literal["devcontainer", "agent"] = "devcontainer"
+
+    # Docker access for agent containers.
+    #   auto    only when the job starts a devcontainer (the safe default)
+    #   always  also without one — for an agent whose tooling needs a daemon,
+    #           such as an MCP server that runs `docker run`
+    #   never   not at all
+    # Access is always through the socket proxy's allowlist under `host`.
+    agent_docker_access: Literal["auto", "always", "never"] = "auto"
+
+    # A host directory bind-mounted at /workspace instead of a per-job volume.
+    # Empty keeps the disposable behaviour docs/PLAN.md §4 describes. Only
+    # meaningful under the `host` backend: the dind daemon resolves paths
+    # against its own filesystem, where this one does not exist.
+    agent_workspace_mount: str = ""
+    agent_workspace_mount_mode: Literal["rw", "ro"] = "rw"
     agent_devcontainer_image: str = ""
 
     agent_max_concurrency: int = 2

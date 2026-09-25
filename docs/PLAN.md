@@ -102,6 +102,11 @@ Rules that follow from this and must hold in the implementation:
 n8n can either poll `GET /jobs/{id}` or pass a callback URL and wait on a webhook. For long agent
 runs the callback is the more robust of the two.
 
+A job can instead be pointed at a directory on the host (`AGENT_WORKSPACE_MOUNT`), which trades the
+disposability above for working on real files. That is a deliberate departure from this section, not
+an oversight: it only works under `host`, it refuses `repoUrl` because cloning would delete the
+target, and it is the operator's call. Everything below describes the default.
+
 Each job gets its own Docker volume, created and removed through the Docker API. That works
 identically under both profiles — unlike a bind mount, whose path would mean different things to the
 host daemon and to the dind daemon. This is the detail most likely to cause a confusing bug, so it
