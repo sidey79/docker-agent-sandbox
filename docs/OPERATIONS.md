@@ -475,16 +475,27 @@ servers need a human to approve them — which nobody can do in `-p` mode. That 
 a feature here: a cloned repository is text somebody else wrote, and it should
 not be able to start processes just by being cloned.
 
-To use one deliberately, load it explicitly with `--mcp-config`, which makes it a
-server *you* supplied rather than one the repository proposed:
+Using one deliberately takes **two** flags, and each unlocks a different gate:
 
 ```sh
-AGENT_CMD=claude -p "$(cat $$TASK_FILE)" --mcp-config .mcp.json --permission-mode acceptEdits
+AGENT_CMD=claude -p "$$(cat $$TASK_FILE)" --mcp-config .mcp.json --allowedTools "mcp__n8n-mcp__tools_documentation"
 ```
 
-Read the file before you do this, especially for a repository you do not own. An
-MCP server is a command the agent will run. Note too that a server which itself
-runs `docker run` needs `AGENT_DOCKER_ACCESS=always`, and under `host` that
+- `--mcp-config` loads the server, making it one *you* supplied rather than one
+  the repository proposed. Without it the server never starts.
+- `--allowedTools` lets the agent actually *call* its tools. Without it the
+  server starts, the agent finds the tool — and then stops to ask for permission
+  nobody can give, replying `Ich brauche deine Freigabe, um das Tool … auszuführen`
+  and exiting `0`. The same silent success as the file-edit trap below.
+
+Name tools individually rather than with a wildcard where you can: every tool you
+allow is something the agent may do on the strength of text in a repository. A
+`.mcp.json` may carry its own `alwaysAllow` list; Claude Code does not read it, so
+it grants nothing here.
+
+Read the file before you do any of this, especially for a repository you do not
+own. An MCP server is a command the agent will run. Note too that a server which
+itself runs `docker run` needs `AGENT_DOCKER_ACCESS=always`, and under `host` that
 daemon is the host's.
 
 ### Claude Code reports success without doing anything
