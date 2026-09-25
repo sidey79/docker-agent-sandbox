@@ -114,6 +114,9 @@ dispatcher; the rest of the table is settable but rarely worth changing.
 | `AGENT_API_TOKEN` | *(required)* | Bearer token. The stack refuses to start without it. |
 | `AGENT_IMAGE` | `docker-agent-sandbox/agent:local` | Image used for every job. |
 | `AGENT_CMD` | *(empty)* | Command run once per job. This is where an agent CLI goes. Empty means "bring the devcontainer up and stop", which is a useful smoke test. |
+| `AGENT_DOCKER_ACCESS` | `auto` | `auto` gives Docker access only to jobs that start a devcontainer; `always` also without one; `never` not at all. |
+| `AGENT_WORKSPACE_MOUNT` | *(empty)* | Host directory used as the workspace instead of a per-job volume. See [Working on a host directory](#working-on-a-host-directory). |
+| `AGENT_WORKSPACE_MOUNT_MODE` | `rw` | `rw` or `ro` for that mount. |
 | `AGENT_CMD_LOCATION` | `devcontainer` | `devcontainer` runs `AGENT_CMD` inside the devcontainer; `agent` runs it in the agent container and starts no devcontainer. See [Running Claude Code as the agent](#running-claude-code-as-the-agent). |
 | `ANTHROPIC_API_KEY` | *(empty)* | Handed to agent containers. See [Credentials](#credentials). |
 
@@ -141,6 +144,64 @@ Enforced by the dispatcher on every container, never negotiable by a job.
 | `AGENT_CREDENTIAL_ENV` | `ANTHROPIC_API_KEY` | Comma-separated names of variables forwarded to agents. |
 | `CALLBACK_TIMEOUT_SECONDS` | `15` | How long a completion webhook may take. |
 | `DB_PATH` | `/data/jobs.sqlite3` | Job store inside the dispatcher container. |
+
+### Working on a host directory
+
+By default every job gets a fresh volume and clones into it, which is what keeps
+jobs disposable. Setting `AGENT_WORKSPACE_MOUNT` replaces that with a directory
+from the host:
+
+```sh
+COMPOSE_PROFILES=host                       # required — see below
+AGENT_WORKSPACE_MOUNT=/home/you/git_repos
+AGENT_WORKSPACE_MOUNT_MODE=rw
+```
+
+A job then picks which subdirectory to work in:
+
+```sh
+curl -X POST http://agent-api:8080/jobs \
+  -H "Authorization: Bearer $AGENT_API_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"task": "...", "workspaceDir": "my-project"}'
+```
+
+The mount path is configuration; a job only chooses a directory inside it.
+`workspaceDir` must be a single plain name — a slash, a `..` or an absolute path
+is refused with `422` rather than normalised, because normalising is where path
+checks usually go wrong.
+
+**`host` only.** The dind daemon resolves bind-mount paths against its own
+filesystem, where a host path does not exist. Under `dind` the mount silently
+means something else, so do not use it there.
+
+**`repoUrl` is refused while a mount is set**, on both sides. The clone path
+deletes its target before cloning; pointed at a mounted repository it would
+delete the very thing the job was given. The dispatcher answers `422` and the
+entrypoint refuses too, in case a job reaches it another way.
+
+The task text does **not** land in the working tree when the workspace is
+mounted — writing `AGENT_TASK.md` into somebody's repository would leave a stray
+file behind. It goes to `/tmp/AGENT_TASK.md`, and `TASK_FILE` in the container
+always holds the right path. Prefer `"$TASK_FILE"` over a hardcoded name.
+
+What this costs is worth stating plainly: jobs stop being disposable. The agent
+writes into a real working tree, uncommitted changes included, and a job that
+goes wrong goes wrong in your repository rather than in a volume that gets thrown
+away. Committing first, or pointing the mount at a git worktree, limits the
+damage a bad run can do.
+
+### A `$` in AGENT_CMD disappears
+
+Compose interpolates values from `.env` against its own environment before the
+dispatcher ever sees them, so `$TASK_FILE` in `AGENT_CMD` arrives as an empty
+string — with only a warning on `docker compose up` to hint at it. Write `$$VAR`
+to pass a shell variable through:
+
+```sh
+AGENT_CMD=claude -p "$(cat $$TASK_FILE)" --permission-mode acceptEdits
+```
+
+`$(...)` is left alone, so command substitution needs no escaping.
 
 ### Running Claude Code as the agent
 
@@ -405,6 +466,26 @@ down, two containers answer to it. `docker compose ps -a` shows the stray one.
 Under `host`, agent containers run on `agent_run_net`, which is deliberately not internal. If jobs
 fail at `git clone` with a DNS error, check that `AGENT_NETWORK` still names an existing, non-internal
 network — `agent_net` is internal and will fail exactly this way.
+
+### An MCP server from the repository is not used
+
+`claude mcp list` inside the job shows it as `⏸ Pending approval (run \`claude\`
+to approve)`. A `.mcp.json` in a repository is project scope, and project-scope
+servers need a human to approve them — which nobody can do in `-p` mode. That is
+a feature here: a cloned repository is text somebody else wrote, and it should
+not be able to start processes just by being cloned.
+
+To use one deliberately, load it explicitly with `--mcp-config`, which makes it a
+server *you* supplied rather than one the repository proposed:
+
+```sh
+AGENT_CMD=claude -p "$(cat $$TASK_FILE)" --mcp-config .mcp.json --permission-mode acceptEdits
+```
+
+Read the file before you do this, especially for a repository you do not own. An
+MCP server is a command the agent will run. Note too that a server which itself
+runs `docker run` needs `AGENT_DOCKER_ACCESS=always`, and under `host` that
+daemon is the host's.
 
 ### Claude Code reports success without doing anything
 

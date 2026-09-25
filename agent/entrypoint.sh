@@ -61,7 +61,23 @@ log "docker host: ${DOCKER_HOST:-<default socket>}"
 
 # --- workspace ---------------------------------------------------------------
 
-if [ -n "${REPO_URL:-}" ]; then
+# WORKSPACE_MOUNTED says the workspace is a directory bind-mounted from the host,
+# holding real work rather than a scratch volume. The clone path below deletes
+# its target first, so the two must never meet: a job that cloned into a mounted
+# workspace would delete the very repository it was pointed at.
+if [ "${WORKSPACE_MOUNTED:-0}" = "1" ]; then
+  if [ -n "${REPO_URL:-}" ]; then
+    summary="REPO_URL cannot be used with a mounted workspace: cloning would delete ${WORKSPACE_FOLDER}"
+    log "${summary}"
+    exit 2
+  fi
+  if [ ! -d "${WORKSPACE_FOLDER}" ]; then
+    summary="workspace directory ${WORKSPACE_FOLDER} does not exist in the mount"
+    log "${summary}"
+    exit 2
+  fi
+  log "using the mounted workspace at ${WORKSPACE_FOLDER}"
+elif [ -n "${REPO_URL:-}" ]; then
   log "cloning ${REPO_URL} into ${WORKSPACE_FOLDER}"
   rm -rf "${WORKSPACE_FOLDER}"
   if [ -n "${REPO_REF:-}" ]; then
@@ -77,7 +93,15 @@ fi
 # The task is handed over as a file rather than only as an environment variable,
 # so an agent CLI can read it without the dispatcher having to quote it into a
 # command line.
-printf '%s\n' "${TASK}" > "${WORKSPACE_FOLDER}/AGENT_TASK.md"
+if [ "${WORKSPACE_MOUNTED:-0}" = "1" ]; then
+  # Writing into a mounted repository would leave a stray file in someone's
+  # working tree, so the task goes beside it instead.
+  TASK_FILE="/tmp/AGENT_TASK.md"
+else
+  TASK_FILE="${WORKSPACE_FOLDER}/AGENT_TASK.md"
+fi
+printf '%s\n' "${TASK}" > "${TASK_FILE}"
+export TASK_FILE
 
 # --- agent ------------------------------------------------------------------
 #

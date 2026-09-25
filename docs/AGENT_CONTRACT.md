@@ -22,7 +22,9 @@ to look at a filesystem.
 | `AGENT_DEVCONTAINER_IMAGE` | no | Image used when the repository ships no `devcontainer.json`. Defaults to `mcr.microsoft.com/devcontainers/base:bookworm`. |
 | `DOCKER_HOST` | yes in practice | Where the agent creates the devcontainer. In the stack this is `tcp://docker-proxy:2375`. |
 | `WORKSPACE` | no | Mount point of the job volume. Defaults to `/workspace`. |
-| `REPO_DIR_NAME` | no | Directory inside the workspace the repository is cloned into. Defaults to `repo`. |
+| `REPO_DIR_NAME` | no | Directory inside the workspace to work in. Defaults to `repo`; with a mounted workspace the dispatcher sets it from the job's `workspaceDir`. |
+| `WORKSPACE_MOUNTED` | no | `1` when `/workspace` is a host directory rather than a job volume. Cloning is refused and the task file goes to `/tmp` instead of into the working tree. |
+| `TASK_FILE` | — | *Set by the entrypoint*, not by the dispatcher: the path the task text was written to. Prefer it over hardcoding `AGENT_TASK.md`, which moves when the workspace is mounted. |
 
 The job volume is mounted at `$WORKSPACE`. The image creates that directory owned by `node`, so a
 fresh named volume inherits that ownership and the unprivileged user can write to it without anyone

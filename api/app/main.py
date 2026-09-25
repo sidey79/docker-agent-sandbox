@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 from .config import get_settings
-from .runner import JobRunner, validate_repo
+from .runner import JobRunner, validate_repo, validate_workspace_dir
 from .store import DONE_STATES, JobStore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -28,6 +28,7 @@ class JobRequest(BaseModel):
     repo_url: str | None = Field(default=None, alias="repoUrl", max_length=2048)
     repo_ref: str | None = Field(default=None, alias="repoRef", max_length=255)
     callback_url: str | None = Field(default=None, alias="callbackUrl", max_length=2048)
+    workspace_dir: str | None = Field(default=None, alias="workspaceDir", max_length=255)
 
     model_config = {"populate_by_name": True}
 
@@ -100,13 +101,32 @@ async def healthz() -> dict[str, str]:
 
 @app.post("/jobs", status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(require_token)])
 async def submit_job(request: Request, body: JobRequest) -> JSONResponse:
-    error = validate_repo(body.repo_url, body.repo_ref)
-    if error:
-        raise HTTPException(status_code=422, detail=error)
+    settings = request.app.state.settings
+    for error in (
+        validate_repo(body.repo_url, body.repo_ref),
+        validate_workspace_dir(body.workspace_dir),
+    ):
+        if error:
+            raise HTTPException(status_code=422, detail=error)
+
+    if settings.agent_workspace_mount:
+        if body.repo_url:
+            # The agent would clone over a real working tree. Refusing is the
+            # only safe answer; see the guard in the entrypoint for the same
+            # reason stated from the other side.
+            raise HTTPException(
+                status_code=422,
+                detail="repoUrl cannot be used while a workspace mount is configured",
+            )
+    elif body.workspace_dir:
+        raise HTTPException(
+            status_code=422,
+            detail="workspaceDir needs a workspace mount; this dispatcher has none configured",
+        )
 
     job_id = uuid.uuid4().hex
     request.app.state.store.create(
-        job_id, body.task, body.repo_url, body.repo_ref, body.callback_url
+        job_id, body.task, body.repo_url, body.repo_ref, body.callback_url, body.workspace_dir
     )
     await request.app.state.runner.submit(job_id)
     log.info("job %s queued", job_id)

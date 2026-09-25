@@ -19,6 +19,11 @@ services:
       - AGENT_IMAGE=${AGENT_IMAGE:-docker-agent-sandbox/agent:local}
       - AGENT_CMD=${AGENT_CMD:-}
       - AGENT_CMD_LOCATION=${AGENT_CMD_LOCATION:-devcontainer}
+      - AGENT_DOCKER_ACCESS=${AGENT_DOCKER_ACCESS:-auto}
+      # A host directory used as the workspace instead of a per-job volume.
+      # Empty keeps jobs disposable; set it only under the host profile.
+      - AGENT_WORKSPACE_MOUNT=${AGENT_WORKSPACE_MOUNT:-}
+      - AGENT_WORKSPACE_MOUNT_MODE=${AGENT_WORKSPACE_MOUNT_MODE:-rw}
       - AGENT_MAX_CONCURRENCY=${AGENT_MAX_CONCURRENCY:-2}
       - AGENT_JOB_TIMEOUT_SECONDS=${AGENT_JOB_TIMEOUT_SECONDS:-1800}
       - AGENT_MEM_LIMIT=${AGENT_MEM_LIMIT:-2g}
