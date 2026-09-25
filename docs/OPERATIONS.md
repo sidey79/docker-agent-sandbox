@@ -140,6 +140,8 @@ Enforced by the dispatcher on every container, never negotiable by a job.
 | `AGENT_DIND_DOCKER_GID` | `2375` | gid of the `docker` group in the `docker:dind` image. Without it the agent cannot open the socket it was handed. |
 | `AGENT_CREDENTIAL_ENV` | `ANTHROPIC_API_KEY` | Comma-separated names of variables forwarded to agents. |
 | `CALLBACK_TIMEOUT_SECONDS` | `15` | How long a completion webhook may take. |
+| `EXTRA_CA_BUNDLE_SOURCE` | *(empty)* | Host path of a PEM file with additional trusted CAs, for a callback URL served by a private CA. |
+| `EXTRA_CA_BUNDLE` | *(empty)* | Where that file appears in the dispatcher — `/etc/ssl/extra-ca.pem`. Added to the system trust store, not replacing it. |
 | `DB_PATH` | `/data/jobs.sqlite3` | Job store inside the dispatcher container. |
 
 ### Running Claude Code as the agent
@@ -421,6 +423,21 @@ Add `--permission-mode acceptEdits` to `AGENT_CMD` for jobs that change files.
 
 Worth knowing because the failure is silent: nothing in the status tells you the
 job did nothing. If jobs come back suspiciously fast, read the log.
+
+### Callbacks never arrive
+
+The dispatcher logs every failed callback with the exception class:
+
+```sh
+docker compose logs agent-api | grep callback
+```
+
+- `ConnectError` against a `http://` URL usually means n8n speaks TLS on that port. Use `https://`.
+- `CERTIFICATE_VERIFY_FAILED … self-signed certificate in certificate chain` — n8n's certificate
+  comes from a CA the dispatcher does not know. Set `EXTRA_CA_BUNDLE_SOURCE` to that CA and
+  `EXTRA_CA_BUNDLE=/etc/ssl/extra-ca.pem`, then `docker compose up -d agent-api`.
+- `answered HTTP 404: … is not registered` — the workflow is not active, or was triggered with
+  *Execute workflow*, which does not register the callback trigger. Activate it.
 
 ### A job says `failed` but something is still running
 

@@ -113,7 +113,7 @@
           "conditions": [
             {
               "id": "c1",
-              "leftValue": "={{ $json.body.status }}",
+              "leftValue": "={{ $('Job finished').item.json.body.status }}",
               "rightValue": "succeeded",
               "operator": {
                 "type": "string",
@@ -128,7 +128,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        0,
+        240,
         240
       ],
       "id": "succeeded",
@@ -139,7 +139,7 @@
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        240,
+        480,
         160
       ],
       "id": "handle-success",
@@ -154,8 +154,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        240,
-        340
+        0,
+        240
       ],
       "id": "fetch-logs",
       "name": "Fetch logs",
@@ -165,6 +165,17 @@
           "name": "docker-agent-sandbox dispatcher"
         }
       }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        480,
+        340
+      ],
+      "id": "handle-failure",
+      "name": "Handle failure"
     }
   ],
   "connections": {
@@ -205,7 +216,7 @@
       "main": [
         [
           {
-            "node": "Succeeded?",
+            "node": "Fetch logs",
             "type": "main",
             "index": 0
           }
@@ -223,7 +234,18 @@
         ],
         [
           {
-            "node": "Fetch logs",
+            "node": "Handle failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch logs": {
+      "main": [
+        [
+          {
+            "node": "Succeeded?",
             "type": "main",
             "index": 0
           }

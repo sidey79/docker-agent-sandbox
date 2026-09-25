@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import re
+import ssl
 import time
 from typing import Any
 
@@ -74,6 +75,8 @@ class JobRunner:
         # Jobs asked to stop. A worker consults this instead of guessing why a
         # container disappeared underneath it.
         self._cancelled: set[str] = set()
+        # Built once on first use; an SSLContext is reusable and not cheap.
+        self._ssl_ctx: ssl.SSLContext | None = None
 
     # --- lifecycle ---------------------------------------------------------
 
@@ -308,6 +311,22 @@ class JobRunner:
 
     # --- callback ----------------------------------------------------------
 
+    def _ssl_context(self) -> ssl.SSLContext | bool:
+        """Trust settings for callbacks.
+
+        A callback URL on an internal host often carries a certificate from a
+        private CA. `load_verify_locations` *adds* to the default trust store,
+        so naming that CA does not stop public certificates from validating —
+        which setting `SSL_CERT_FILE` would, since that replaces the store.
+        """
+        if not self._settings.extra_ca_bundle:
+            return True
+        if self._ssl_ctx is None:
+            context = ssl.create_default_context()
+            context.load_verify_locations(cafile=self._settings.extra_ca_bundle)
+            self._ssl_ctx = context
+        return self._ssl_ctx
+
     async def _post_callback(self, job_id: str, url: str) -> None:
         job = self._store.get(job_id)
         if job is None:
@@ -319,12 +338,36 @@ class JobRunner:
             "result": job["result"],
         }
         try:
-            async with httpx.AsyncClient(timeout=self._settings.callback_timeout_seconds) as http:
-                await http.post(url, json=payload)
+            async with httpx.AsyncClient(
+                timeout=self._settings.callback_timeout_seconds,
+                verify=self._ssl_context(),
+            ) as http:
+                response = await http.post(url, json=payload)
+            if response.is_error:
+                # httpx does not raise on a 4xx/5xx, so without this a webhook
+                # that is not registered — n8n's 404 when the workflow is
+                # inactive — would count as delivered and leave no trace.
+                log.warning(
+                    "job %s: callback to %s answered HTTP %s: %s",
+                    job_id,
+                    url,
+                    response.status_code,
+                    response.text[:200],
+                )
         except httpx.HTTPError as exc:
             # The job itself is finished and its status is stored; a callback
             # that cannot be delivered must not change that.
-            log.warning("job %s: callback to %s failed: %s", job_id, url, exc)
+            #
+            # The class name is logged because several of these carry an empty
+            # message — a ConnectError from speaking HTTP to a TLS port prints
+            # as nothing at all, which is the least helpful log line possible.
+            log.warning(
+                "job %s: callback to %s failed: %s: %s",
+                job_id,
+                url,
+                type(exc).__name__,
+                exc,
+            )
 
 
 def _credentials(settings: Settings) -> dict[str, str]:

@@ -1,5 +1,6 @@
 # Local configuration – contains API tokens and agent credentials
 .env
+.env.bak*
 
 # Runtime data
 data/
