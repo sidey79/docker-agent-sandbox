@@ -10,7 +10,7 @@
 #
 # The Docker CLI is copied in rather than installed from a repository, so that
 # Renovate tracks it as the same image the rest of the stack pins.
-FROM docker:29.8.1-cli@sha256:6602978e2be3c20e530e33773b8cadcef5fe998a71a534ee24516f1176973cdf AS docker-cli
+FROM docker:29.9.0-cli@sha256:4caa52207e95c68c3087006eefb3a5f6ca48ad1c0ba3aa3e6843549a0720b7bb AS docker-cli
 
 FROM node:24.21.0-bookworm-slim@sha256:51b1100cc2a83d370c6a60952e3f2989c8a43159d0e38586e090f3b3326efefd AS base
 
