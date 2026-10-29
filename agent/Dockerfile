@@ -12,7 +12,7 @@
 # Renovate tracks it as the same image the rest of the stack pins.
 FROM docker:29.8.1-cli@sha256:6602978e2be3c20e530e33773b8cadcef5fe998a71a534ee24516f1176973cdf AS docker-cli
 
-FROM node:24.21.0-bookworm-slim@sha256:51b1100cc2a83d370c6a60952e3f2989c8a43159d0e38586e090f3b3326efefd AS base
+FROM node:26.13.0-bookworm-slim@sha256:cd820d60a7f3ae057389f3e1bcf1a0ac09dd57c428fe14f191dcbc5c56ac5fe2 AS base
 
 # git to fetch the repository under test, jq for the entrypoint, tini so that a
 # cancelled job does not leave zombies behind.
