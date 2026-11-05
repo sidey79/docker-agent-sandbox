@@ -1,6 +1,6 @@
 # The dispatcher. Python only — it talks to the Docker API and nothing else;
 # all agent tooling lives in the agent image (docs/PLAN.md §5, phase 4).
-FROM python:3.14.7-slim-bookworm@sha256:998acd06f485adfd6890e3e15a4b542543e0cf22ff904310095da328a5e3e561
+FROM python:3.15.2-slim-bookworm@sha256:6cae5760197a96ea5d0a41ae2e045733c351d605c61148dd030aafdf4919e33a
 
 WORKDIR /srv
 
