@@ -81,7 +81,7 @@ services:
   # Ubuntu 23.10+ blocks the user namespace this needs; see the README section
   # "Host requirement for the dind profile".
   dind:
-    image: docker:29.8.1-dind-rootless@sha256:575e55254404cf956069d061d265f1109c60f725822f0629b61ccf7029de2728
+    image: docker:29.10.0-dind-rootless@sha256:e9a64c6aaf04fe706935a5975ad25845621d0981a6ca91e21120448551b2033c
     volumes:
       # Shared with docker-proxy-dind; holds nothing but the socket, because the
       # data root is a nested volume of its own. The mount point is owned by
